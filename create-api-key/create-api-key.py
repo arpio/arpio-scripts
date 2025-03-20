@@ -17,14 +17,15 @@ class SessionError(Exception):
 @click.argument('account-id')
 @click.argument('email')
 @click.option('--password', prompt='Password', hide_input=True)
-def cli(account_id: str, email: str, password: str):
+@click.option('--api-hostname', default='api.arpio.io')
+def cli(account_id: str, email: str, password: str, api_hostname: str):
     """
     Authenticate to an Arpio account using an email address and password and
     create an API key that can be used non-interactively to work with that
     account's resources.
     """
     # The account is a protected resource that requires authentication.
-    account_uri = f'https://api.arpio.io/api/accounts/{account_id}'
+    account_uri = f'https://{api_hostname}/api/accounts/{account_id}'
 
     http = urllib3.PoolManager()
 
