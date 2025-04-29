@@ -1,4 +1,28 @@
 #!/usr/bin/env python3
+
+# This script is designed to automate the process of updating AWS CloudFormation templates associated with applications managed by Arpio, an AWS disaster recovery service.
+
+# First-time Setup Instructions
+# 1. Make sure you have python 3 installed.  Get it here: https://www.python.org/downloads/
+# 2. Copy this script and accompanying artifacts to a folder of your choosing.
+# 3. Open a Windows Command Prompt or Linux/Mac Terminal and cd to the folder you chose in step #2.
+# 4. Run this command on Windows: py -m venv venv
+#    or this command on Linux/Mac: python3 -m venv venv
+# 5. Go run the Every-time Setup Instructions below
+
+# Every-time Setup Instructions
+# 1. Run this command on Windows: .\venv\Scripts\activate
+#    or this command on Linux/Mac: . ./venv/bin/activate
+# 2. Run this command: pip install -r requirements.txt
+# ----------- Multi-threaded printing capability ----------
+
+# Usage
+# Invoke the script. When prompted, enter the following parameters:
+# 1. Arpio Account ID (Navigate to Settings > Account in the Arpio console and copy the string following "Account ID: ")
+# 2. Arpio User ID (This will be the email address you use to login to the Arpio application)
+# 3. Arpio Password (The password you use to login the user ID from step 2)
+# By default, the script will assume the IAM role: OrganizationAccountAccessRole for each AWS account associated with an Arpio Application.
+
 import argparse
 import json
 import os
