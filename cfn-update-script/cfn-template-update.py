@@ -28,14 +28,24 @@ import json
 import os
 import threading
 import time
+from sys import exit
 from getpass import getpass
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit, parse_qs, urljoin
 from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor
 from http.cookiejar import CookieJar
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from boto3.session import Session
-from botocore.exceptions import ClientError
+
+try:
+    from boto3.session import Session  # Replace 'somepackage' with the actual package name
+except ImportError:
+    exit("The 'boto3.session' package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.")
+
+try:
+    from botocore.exceptions import ClientError  # Replace 'somepackage' with the actual package name
+except ImportError:
+    exit("The 'botocore.exceptions' package is not installed. Please install the AWS SDK Botocore to continue, or run this script in an environment that has it.")
+
 
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
