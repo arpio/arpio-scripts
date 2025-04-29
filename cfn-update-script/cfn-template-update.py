@@ -28,14 +28,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     from boto3.session import Session 
+    from botocore.exceptions import ClientError     
 except ImportError:
-    exit("The 'boto3.session' package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.")
-
-try:
-    from botocore.exceptions import ClientError 
-except ImportError:
-    exit("The 'botocore.exceptions' package is not installed. Please install the AWS SDK Botocore to continue, or run this script in an environment that has it.")
-
+    exit("The 'boto3' package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.")
 
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
