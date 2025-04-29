@@ -37,12 +37,12 @@ from http.cookiejar import CookieJar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
-    from boto3.session import Session  # Replace 'somepackage' with the actual package name
+    from boto3.session import Session 
 except ImportError:
     exit("The 'boto3.session' package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.")
 
 try:
-    from botocore.exceptions import ClientError  # Replace 'somepackage' with the actual package name
+    from botocore.exceptions import ClientError 
 except ImportError:
     exit("The 'botocore.exceptions' package is not installed. Please install the AWS SDK Botocore to continue, or run this script in an environment that has it.")
 
