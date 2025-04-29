@@ -5,16 +5,6 @@
 # First-time Setup Instructions
 # 1. Make sure you have python 3 installed.  Get it here: https://www.python.org/downloads/
 # 2. Copy this script and accompanying artifacts to a folder of your choosing.
-# 3. Open a Windows Command Prompt or Linux/Mac Terminal and cd to the folder you chose in step #2.
-# 4. Run this command on Windows: py -m venv venv
-#    or this command on Linux/Mac: python3 -m venv venv
-# 5. Go run the Every-time Setup Instructions below
-
-# Every-time Setup Instructions
-# 1. Run this command on Windows: .\venv\Scripts\activate
-#    or this command on Linux/Mac: . ./venv/bin/activate
-# 2. Run this command: pip install -r requirements.txt
-# ----------- Multi-threaded printing capability ----------
 
 # Usage
 # Invoke the script. When prompted, enter the following parameters:
