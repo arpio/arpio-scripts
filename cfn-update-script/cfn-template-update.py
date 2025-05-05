@@ -130,14 +130,17 @@ def get_arpio_token(account_id, username, password):
     return token
 
 
-def query_applications(token, arpio_account):
+def query_environments(token, arpio_account):
     url = build_arpio_url('accounts', arpio_account, 'applications')
     body, code, _ = http_get(url, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
     if code != 200:
         raise Exception(f'Failed to query applications: {body.decode()}')
     applications = json.loads(body)
-    return [((app['sourceAwsAccountId'], app['sourceRegion']),
-             (app['targetAwsAccountId'], app['targetRegion'])) for app in applications]
+    source_account_region = {(app['sourceAwsAccountId'], app['sourceRegion']):(app['targetAwsAccountId'], 
+                                                       app['targetRegion']) for app in applications}
+    target_account_region = {(app['targetAwsAccountId'], app['targetRegion']):(app['sourceAwsAccountId'],
+                                                            app['sourceRegion']) for app in applications}
+    return source_account_region, target_account_region
 
 
 def needs_template_update(token, arpio_account, source_account, source_region, target_account, target_region):
@@ -207,46 +210,38 @@ def install_access_template(session, aws_account, region, template_url, stack_na
 def process_sync_pair(app_tuple, token, arpio_account, role_name, session):
     (sourceAcc, sourceReg), (targetAcc, targetReg) = app_tuple
     try:
-        try:
-            source_stack, target_stack = needs_template_update(token, arpio_account, sourceAcc, sourceReg, targetAcc,
-                                                           targetReg)
-        except Exception as eTemplateCheck:
-            safe_print(f'❌ Unable to check environment templates: {sourceAcc}/{sourceReg} & {targetAcc}/{targetReg}')
-            safe_print(f'❌ Exception: {eTemplateCheck} \n')
+        source_stack, target_stack = needs_template_update(token, arpio_account, sourceAcc, sourceReg, targetAcc,
+                                                       targetReg)
+    except Exception as eTemplateCheck:
+        safe_print(f'❌ Unable to check environment templates: {sourceAcc}/{sourceReg} & {targetAcc}/{targetReg} : Exception: {eTemplateCheck}')
+        return
 
-        if not source_stack and not target_stack:
-            safe_print(f'✅ Source environment template up to date: {sourceAcc}/{sourceReg}')
-            safe_print(f'✅ Target environment template up to date: {targetAcc}/{targetReg}')
-            return
-        
-        if source_stack:
-            try:
-                src_sess, _ = get_assumed_session(session, (sourceAcc, sourceReg), role_name)
-                install_access_template(src_sess, sourceAcc, sourceReg, source_template, source_stack)
-                safe_print(f'✅ Updated source environment: {sourceAcc}/{sourceReg}')            
-            except Exception as eSource:
-                safe_print(f'❌ Failed to update source environment template:{eSource}')
-        if target_stack:
-            try:
-                tgt_sess, _ = get_assumed_session(session, (targetAcc, targetReg), role_name)
-                install_access_template(tgt_sess, targetAcc, targetReg, target_template, target_stack)
-                safe_print(f'✅ Updated target environment: {targetAcc}/{targetReg}')            
-            except Exception as eTarget:
-                safe_print(f'❌ Failed to update target environment template:{eTarget}')
-
+    if not source_stack and not target_stack:
+        safe_print(f'✅ Source environment template up to date: {sourceAcc}/{sourceReg}')
+        safe_print(f'✅ Target environment template up to date: {targetAcc}/{targetReg}')
+        return
+    
+    try:
+        source_template, target_template = get_access_templates(arpio_account, (sourceAcc, sourceReg),
+                                                                (targetAcc, targetReg), token)          
     except Exception as e:
-        safe_print(f'❌ Failed to update templates:{e}')
+        safe_print(f'❌ Failed to update template:{e}')
+        return
 
-    else:
+    if source_stack:
         try:
-            source_template, target_template = get_access_templates(arpio_account, (sourceAcc, sourceReg),
-                                                                    (targetAcc, targetReg), token)            
-            safe_print(f'✅ Source environment template up to date: {sourceAcc}/{sourceReg}')
-            safe_print(f'✅ Target environment template up to date: {targetAcc}/{targetReg}')
-            return
-        except Exception as e:
-            safe_print(f'❌ Failed to update template:{e}')
-            return
+            src_sess, _ = get_assumed_session(session, (sourceAcc, sourceReg), role_name)
+            install_access_template(src_sess, sourceAcc, sourceReg, source_template, source_stack)
+            safe_print(f'✅ Updated source environment: {sourceAcc}/{sourceReg}')            
+        except Exception as eSource:
+            safe_print(f'❌ Failed to update source environment template:{eSource}')
+    if target_stack:
+        try:
+            tgt_sess, _ = get_assumed_session(session, (targetAcc, targetReg), role_name)
+            install_access_template(tgt_sess, targetAcc, targetReg, target_template, target_stack)
+            safe_print(f'✅ Updated target environment: {targetAcc}/{targetReg}')            
+        except Exception as eTarget:
+            safe_print(f'❌ Failed to update target environment template:{eTarget}')
     return
 
 
@@ -286,17 +281,29 @@ def main():
 
     token = get_arpio_token(arpio_account, username, password)
     session = Session()
-    app_tuples = query_applications(token, arpio_account)
-
+    source_envs,target_envs = query_environments(token, arpio_account)
+    unique_envs = {(src,tgt) for src,tgt in source_envs.items()}
+    unique_envs.update((src,tgt) for tgt,src in target_envs.items())
+    
     # We only need maximum 1 worker per sync pair
-    max_workers = min(max_workers, len(app_tuples))
-
-    print(f'\n🔍 Found {len(app_tuples)} sync pairs. Starting parallel updates with {max_workers} workers...\n')
+    max_workers = min(max_workers, len(unique_envs))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(process_sync_pair, t, token, arpio_account, role_name, session) for t in app_tuples]
+        unique_envs_updatable = [executor.submit(needs_template_update, token, arpio_account, src[0], src[1],
+                                                  tgt[0],tgt[1]) for src,tgt in unique_envs]
+        ## build function that checks pairs for updates needed similar to 
+        # needs_temp_updt but returns pairs that do need update
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as subexecutor:
+
+
+    print(f'\n🔍 Found {len(unique_envs)} sync pairs. Starting parallel updates with {max_workers} workers...\n')
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_sync_pair, t, token, arpio_account, role_name, 
+                                   session) for t in unique_envs]
         for _ in as_completed(futures):
             pass
 
 
 if __name__ == '__main__':
     main()
+
