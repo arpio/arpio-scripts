@@ -232,10 +232,10 @@ def process_sync_pair(app_tuple, token, arpio_account, role_name, session):
                 install_access_template(tgt_sess, targetAcc, targetReg, target_template, target_stack)
                 safe_print(f"✅ Updated target environment: {targetAcc}/{targetReg}")            
             except Exception as eTarget:
-                safe_print(f"❌ Failed to update target environmenttemplate:{eTarget}")
+                safe_print(f"❌ Failed to update target environment template:{eTarget}")
 
     except Exception as e:
-        safe_print(f"❌ Failed to update template:{e}")
+        safe_print(f"❌ Failed to update templates:{e}")
 
     else:
         try:
