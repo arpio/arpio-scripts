@@ -32,10 +32,10 @@ DEFAULT_IAM_ROLE = 'OrganizationAccountAccessRole'
 
 
 # ----------- Multi-threaded printing capability ----------
+### Thread-safe print function that prevents output from interleaving.
 _print_lock = threading.Lock()
 
 def safe_print(*args, **kwargs):
-    '''Thread-safe print function that prevents output from interleaving.'''
     with _print_lock:
         print(*args, **kwargs)
 
