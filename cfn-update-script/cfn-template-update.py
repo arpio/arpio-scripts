@@ -8,7 +8,7 @@
 
 # Usage
 # Invoke the script. When prompted, enter the following parameters:
-# 1. Arpio Account ID (Navigate to Settings > Account in the Arpio console and copy the string following "Account ID: ")
+# 1. Arpio Account ID (Navigate to Settings > Account in the Arpio console and copy the string following 'Account ID: ')
 # 2. Arpio User ID (This will be the email address you use to login to the Arpio application)
 # 3. Arpio Password (The password you use to login the user ID from step 2)
 # By default, the script will assume the IAM role: OrganizationAccountAccessRole for each AWS account associated with an Arpio Application.
@@ -35,7 +35,7 @@ DEFAULT_IAM_ROLE = 'OrganizationAccountAccessRole'
 _print_lock = threading.Lock()
 
 def safe_print(*args, **kwargs):
-    """Thread-safe print function that prevents output from interleaving."""
+    '''Thread-safe print function that prevents output from interleaving.'''
     with _print_lock:
         print(*args, **kwargs)
 
@@ -44,7 +44,7 @@ try:
     from boto3.session import Session 
     from botocore.exceptions import ClientError     
 except ImportError:
-    safe_print("The 'boto3' package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.")
+    safe_print('The "boto3" package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.')
     exit()
 
 # ---------- HTTP Utilities with urllib ----------
@@ -92,7 +92,7 @@ def get_arpio_token(account_id, username, password):
     
     auth_url = json.loads(str(body, 'utf-8')).get('authenticateUrl')
     if not auth_url:
-        raise Exception("Didn't get an authentication URL in 401 response")
+        raise Exception('No authentication URL in 401 response')
 
     auth_url = urljoin(list_apps_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
@@ -100,12 +100,12 @@ def get_arpio_token(account_id, username, password):
 
     web_login_url = auth_response.get('loginUrl')
     if not web_login_url:
-        raise Exception("No loginUrl in auth flow response")
+        raise Exception('No loginUrl in auth flow response')
 
     query_params = parse_qs(urlsplit(web_login_url).query)
     auth_token = query_params.get('authToken', [None])[0]
     if not auth_token:
-        raise Exception(f"No authToken in URL: {web_login_url}")
+        raise Exception(f'No authToken in URL: {web_login_url}')
 
     login_url = f'{urlsplit(auth_url).scheme}://{urlsplit(auth_url).netloc}/api/users/login'
     body, code, _ = http_post(login_url, {'email': username, 'password': password})
@@ -176,7 +176,7 @@ def get_assumed_session(boto_session, environment, role):
 
 
 def install_access_template(session, aws_account, region, template_url, stack_name):
-    safe_print(f"⏳ Installing template in {aws_account}/{region}")
+    safe_print(f'⏳ Installing template in {aws_account}/{region}')
     cfn = session.client('cloudformation')
     try:
         cfn.update_stack(
@@ -185,7 +185,7 @@ def install_access_template(session, aws_account, region, template_url, stack_na
             Capabilities=['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM']
         )
     except ClientError as ce:
-        if "does not exist" in ce.response['Error']['Message']:
+        if 'does not exist' in ce.response['Error']['Message']:
             cfn.create_stack(
                 StackName=stack_name,
                 TemplateURL=template_url,
@@ -201,7 +201,7 @@ def install_access_template(session, aws_account, region, template_url, stack_na
         if status in {'CREATE_COMPLETE', 'UPDATE_COMPLETE'}:
             break
         elif 'FAILED' in status or 'ROLLBACK' in status:
-            raise Exception(f"Stack operation failed: {status}")
+            raise Exception(f'Stack operation failed: {status}')
 
 
 def process_sync_pair(app_tuple, token, arpio_account, role_name, session):
@@ -211,41 +211,41 @@ def process_sync_pair(app_tuple, token, arpio_account, role_name, session):
             source_stack, target_stack = needs_template_update(token, arpio_account, sourceAcc, sourceReg, targetAcc,
                                                            targetReg)
         except Exception as eTemplateCheck:
-            safe_print(f"❌ Unable to check environment templates: {sourceAcc}/{sourceReg} & {targetAcc}/{targetReg}")
-            safe_print(f"❌ Exception: {eTemplateCheck} \n")
+            safe_print(f'❌ Unable to check environment templates: {sourceAcc}/{sourceReg} & {targetAcc}/{targetReg}')
+            safe_print(f'❌ Exception: {eTemplateCheck} \n')
 
         if not source_stack and not target_stack:
-            safe_print(f"✅ Source environment template up to date: {sourceAcc}/{sourceReg}")
-            safe_print(f"✅ Target environment template up to date: {targetAcc}/{targetReg}")
+            safe_print(f'✅ Source environment template up to date: {sourceAcc}/{sourceReg}')
+            safe_print(f'✅ Target environment template up to date: {targetAcc}/{targetReg}')
             return
         
         if source_stack:
             try:
                 src_sess, _ = get_assumed_session(session, (sourceAcc, sourceReg), role_name)
                 install_access_template(src_sess, sourceAcc, sourceReg, source_template, source_stack)
-                safe_print(f"✅ Updated source environment: {sourceAcc}/{sourceReg}")            
+                safe_print(f'✅ Updated source environment: {sourceAcc}/{sourceReg}')            
             except Exception as eSource:
-                safe_print(f"❌ Failed to update source environment template:{eSource}")
+                safe_print(f'❌ Failed to update source environment template:{eSource}')
         if target_stack:
             try:
                 tgt_sess, _ = get_assumed_session(session, (targetAcc, targetReg), role_name)
                 install_access_template(tgt_sess, targetAcc, targetReg, target_template, target_stack)
-                safe_print(f"✅ Updated target environment: {targetAcc}/{targetReg}")            
+                safe_print(f'✅ Updated target environment: {targetAcc}/{targetReg}')            
             except Exception as eTarget:
-                safe_print(f"❌ Failed to update target environment template:{eTarget}")
+                safe_print(f'❌ Failed to update target environment template:{eTarget}')
 
     except Exception as e:
-        safe_print(f"❌ Failed to update templates:{e}")
+        safe_print(f'❌ Failed to update templates:{e}')
 
     else:
         try:
             source_template, target_template = get_access_templates(arpio_account, (sourceAcc, sourceReg),
                                                                     (targetAcc, targetReg), token)            
-            safe_print(f"✅ Source environment template up to date: {sourceAcc}/{sourceReg}")
-            safe_print(f"✅ Target environment template up to date: {targetAcc}/{targetReg}")
+            safe_print(f'✅ Source environment template up to date: {sourceAcc}/{sourceReg}')
+            safe_print(f'✅ Target environment template up to date: {targetAcc}/{targetReg}')
             return
         except Exception as e:
-            safe_print(f"❌ Failed to update template:{e}")
+            safe_print(f'❌ Failed to update template:{e}')
             return
     return
 
@@ -270,17 +270,17 @@ def parse_args():
 def main():
     args = parse_args()
 
-    print("🛠 Arpio CloudFormation Access Template Updater\n")
-    print("DEFAULT_IAM_ROLE == OrganizationAccountAccessRole\n")
-    arpio_account = args.arpio_account or input("Arpio Account ID: ").strip()
-    username = args.username or input("Arpio Username (email): ").strip()
-    password = args.password or getpass("Arpio Password: ")
+    print('🛠 Arpio CloudFormation Access Template Updater\n')
+    print('DEFAULT_IAM_ROLE == OrganizationAccountAccessRole\n')
+    arpio_account = args.arpio_account or input('Arpio Account ID: ').strip()
+    username = args.username or input('Arpio Username (email): ').strip()
+    password = args.password or getpass('Arpio Password: ')
     
     role_name = args.role_name
     if role_name == DEFAULT_IAM_ROLE:
-        safe_print("Using default " +DEFAULT_IAM_ROLE+ " AWS IAM Role\n")
+        safe_print('Using default ' +DEFAULT_IAM_ROLE+ ' AWS IAM Role\n')
     else:
-        safe_print("Using "+role_name+" for AWS IAM Role\n")
+        safe_print('Using '+role_name+' for AWS IAM Role\n')
 
     max_workers = args.max_workers
 
@@ -291,7 +291,7 @@ def main():
     # We only need maximum 1 worker per sync pair
     max_workers = min(max_workers, len(app_tuples))
 
-    print(f"\n🔍 Found {len(app_tuples)} sync pairs. Starting parallel updates with {max_workers} workers...\n")
+    print(f'\n🔍 Found {len(app_tuples)} sync pairs. Starting parallel updates with {max_workers} workers...\n')
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(process_sync_pair, t, token, arpio_account, role_name, session) for t in app_tuples]
         for _ in as_completed(futures):
