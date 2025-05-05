@@ -26,12 +26,6 @@ from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor
 from http.cookiejar import CookieJar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-try:
-    from boto3.session import Session 
-    from botocore.exceptions import ClientError     
-except ImportError:
-    exit("The 'boto3' package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.")
-
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
 DEFAULT_IAM_ROLE = 'OrganizationAccountAccessRole'
@@ -44,6 +38,14 @@ def safe_print(*args, **kwargs):
     """Thread-safe print function that prevents output from interleaving."""
     with _print_lock:
         print(*args, **kwargs)
+
+# ----------- Boto3 import check ----------   
+try:
+    from boto3.session import Session 
+    from botocore.exceptions import ClientError     
+except ImportError:
+    safe_print("The 'boto3' package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.")
+    exit()
 
 # ---------- HTTP Utilities with urllib ----------
 
@@ -205,22 +207,50 @@ def install_access_template(session, aws_account, region, template_url, stack_na
 def process_sync_pair(app_tuple, token, arpio_account, role_name, session):
     (sourceAcc, sourceReg), (targetAcc, targetReg) = app_tuple
     try:
-        source_stack, target_stack = needs_template_update(token, arpio_account, sourceAcc, sourceReg, targetAcc,
+        try:
+            source_stack, target_stack = needs_template_update(token, arpio_account, sourceAcc, sourceReg, targetAcc,
                                                            targetReg)
+        except Exception as exceptTemplateCheck:
+            safe_print(f"❌ Unable to check Source and Target environment templates: {sourceAcc}/{sourceReg} & {targetAcc}/{targetReg}")
+            safe_print(f"❌ Exception: {exceptTemplateCheck} \n")
+
         if not source_stack and not target_stack:
-            safe_print(f"✅ Sync pair up to date: {sourceAcc}/{sourceReg} → {targetAcc}/{targetReg}")
+            safe_print(f"✅ Source environment template up to date: {sourceAcc}/{sourceReg}")
+            safe_print(f"✅ Target environment template up to date: {targetAcc}/{targetReg}")
             return
-        source_template, target_template = get_access_templates(arpio_account, (sourceAcc, sourceReg),
-                                                                (targetAcc, targetReg), token)
+        
         if source_stack:
-            src_sess, _ = get_assumed_session(session, (sourceAcc, sourceReg), role_name)
-            install_access_template(src_sess, sourceAcc, sourceReg, source_template, source_stack)
+            try:
+                src_sess, _ = get_assumed_session(session, (sourceAcc, sourceReg), role_name)
+                install_access_template(src_sess, sourceAcc, sourceReg, source_template, source_stack)
+                safe_print(f"✅ Updated source environment: {sourceAcc}/{sourceReg}")            
+            except Exception as eSource:
+                safe_print(f"❌ Failed to update source environment template:{eSource}")
         if target_stack:
-            tgt_sess, _ = get_assumed_session(session, (targetAcc, targetReg), role_name)
-            install_access_template(tgt_sess, targetAcc, targetReg, target_template, target_stack)
-        safe_print(f"✅ Updated: {sourceAcc}/{sourceReg} → {targetAcc}/{targetReg}")
+            try:
+                tgt_sess, _ = get_assumed_session(session, (targetAcc, targetReg), role_name)
+                install_access_template(tgt_sess, targetAcc, targetReg, target_template, target_stack)
+                safe_print(f"✅ Updated target environment: {targetAcc}/{targetReg}")            
+            except Exception as e2:
+                safe_print(f"❌ Failed to update target environmenttemplate:{e}")
+
     except Exception as e:
-        safe_print(f"❌ Failed: {sourceAcc}/{sourceReg} → {targetAcc}/{targetReg}: {e}")
+        safe_print(f"❌ Failed to update template:{e}")
+
+    else:
+        try:
+            source_template, target_template = get_access_templates(arpio_account, (sourceAcc, sourceReg),
+                                                                    (targetAcc, targetReg), token)            
+            safe_print(f"✅ Source environment template up to date: {sourceAcc}/{sourceReg}")
+            safe_print(f"✅ Target environment template up to date: {targetAcc}/{targetReg}")
+            return
+        except Exception as e:
+            safe_print(f"❌ Failed to update template:{e}")
+            return
+    return
+
+
+
 
 # ---------- Main Program ----------
 
@@ -241,11 +271,17 @@ def main():
     args = parse_args()
 
     print("🛠 Arpio CloudFormation Access Template Updater\n")
-
+    print("DEFAULT_IAM_ROLE == OrganizationAccountAccessRole\n")
     arpio_account = args.arpio_account or input("Arpio Account ID: ").strip()
     username = args.username or input("Arpio Username (email): ").strip()
     password = args.password or getpass("Arpio Password: ")
+    
     role_name = args.role_name
+    if role_name == DEFAULT_IAM_ROLE:
+        safe_print("Using default " +DEFAULT_IAM_ROLE+ " AWS IAM Role\n")
+    else:
+        safe_print("Using "+role_name+" for AWS IAM Role\n")
+
     max_workers = args.max_workers
 
     token = get_arpio_token(arpio_account, username, password)
