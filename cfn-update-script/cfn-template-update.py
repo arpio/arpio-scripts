@@ -210,9 +210,9 @@ def process_sync_pair(app_tuple, token, arpio_account, role_name, session):
         try:
             source_stack, target_stack = needs_template_update(token, arpio_account, sourceAcc, sourceReg, targetAcc,
                                                            targetReg)
-        except Exception as exceptTemplateCheck:
-            safe_print(f"❌ Unable to check Source and Target environment templates: {sourceAcc}/{sourceReg} & {targetAcc}/{targetReg}")
-            safe_print(f"❌ Exception: {exceptTemplateCheck} \n")
+        except Exception as eTemplateCheck:
+            safe_print(f"❌ Unable to check environment templates: {sourceAcc}/{sourceReg} & {targetAcc}/{targetReg}")
+            safe_print(f"❌ Exception: {eTemplateCheck} \n")
 
         if not source_stack and not target_stack:
             safe_print(f"✅ Source environment template up to date: {sourceAcc}/{sourceReg}")
@@ -231,8 +231,8 @@ def process_sync_pair(app_tuple, token, arpio_account, role_name, session):
                 tgt_sess, _ = get_assumed_session(session, (targetAcc, targetReg), role_name)
                 install_access_template(tgt_sess, targetAcc, targetReg, target_template, target_stack)
                 safe_print(f"✅ Updated target environment: {targetAcc}/{targetReg}")            
-            except Exception as e2:
-                safe_print(f"❌ Failed to update target environmenttemplate:{e}")
+            except Exception as eTarget:
+                safe_print(f"❌ Failed to update target environmenttemplate:{eTarget}")
 
     except Exception as e:
         safe_print(f"❌ Failed to update template:{e}")
