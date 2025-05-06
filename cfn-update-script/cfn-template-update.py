@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright 2025 Arpio, Inc.
 
 # This script is designed to automate the process of updating AWS CloudFormation templates associated with applications managed by Arpio, an AWS disaster recovery service.
 
@@ -292,9 +293,11 @@ def main():
                                                   tgt[0],tgt[1]) for src,tgt in unique_envs]
         ## build function that checks pairs for updates needed similar to 
         # needs_temp_updt but returns pairs that do need update
-        
+        pass
         with ThreadPoolExecutor(max_workers=max_workers) as subexecutor:
+            pass
 
+    max_workers = min(max_workers, len(unique_envs)) ##recalculate thread pool for non-duplicate sync pair tuples
 
     print(f'\n🔍 Found {len(unique_envs)} sync pairs. Starting parallel updates with {max_workers} workers...\n')
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
