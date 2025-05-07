@@ -137,11 +137,9 @@ def query_environments(token, arpio_account):
     if code != 200:
         raise Exception(f'Failed to query applications: {body.decode()}')
     applications = json.loads(body)
-    source_account_region = {(app['sourceAwsAccountId'], app['sourceRegion']):(app['targetAwsAccountId'], 
-                                                       app['targetRegion']) for app in applications}
-    target_account_region = {(app['targetAwsAccountId'], app['targetRegion']):(app['sourceAwsAccountId'],
-                                                            app['sourceRegion']) for app in applications}
-    return source_account_region, target_account_region
+    sync_pair = (((app['sourceAwsAccountId'], app['sourceRegion']), (app['targetAwsAccountId'], 
+                                                       app['targetRegion'])) for app in applications)
+    return sync_pair
 
 
 def needs_template_update(token, arpio_account, source_account, source_region, target_account, target_region):
@@ -282,24 +280,31 @@ def main():
 
     token = get_arpio_token(arpio_account, username, password)
     session = Session()
-    source_envs,target_envs = query_environments(token, arpio_account)
-    unique_envs = {(src,tgt) for src,tgt in source_envs.items()}
-    unique_envs.update((src,tgt) for tgt,src in target_envs.items())
-    
-    # We only need maximum 1 worker per sync pair
-    max_workers = min(max_workers, len(unique_envs))
+
+    sync_pairs = query_environments(token, arpio_account)
+
+
+
+    unique_pairs = set(query_environments(token, arpio_account))
+    update_stack_names = set()
+    max_workers = min(max_workers, len(unique_pairs))
+    print(f'\n🔍 Found {len(unique_pairs)} unique sync pairs. Starting parallel template update checks with {max_workers} workers...\n')
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        unique_envs_updatable = [executor.submit(needs_template_update, token, arpio_account, src[0], src[1],
-                                                  tgt[0],tgt[1]) for src,tgt in unique_envs]
+        futures = executor.submit(lambda:needs_template_update((token, arpio_account, src[0], src[1], tgt[0], tgt[1]) for src,tgt in unique_pairs))
         ## build function that checks pairs for updates needed similar to 
-        # needs_temp_updt but returns pairs that do need update
-        pass
-        with ThreadPoolExecutor(max_workers=max_workers) as subexecutor:
-            pass
+        # needs_template_update but returns pairs that do need update
+        for _ in as_completed(futures):
+            update_stack_names.add(_)
+    
+    source_names =set()
+    target_names =set()
+    for k,v in update_stack_names:
+        source_names.add(k)
+        target_names.add(v)
 
-    max_workers = min(max_workers, len(unique_envs)) ##recalculate thread pool for non-duplicate sync pair tuples
-
-    print(f'\n🔍 Found {len(unique_envs)} sync pairs. Starting parallel updates with {max_workers} workers...\n')
+    total_targets = (len(source_names) + len(target_names))
+    max_workers = min(max_workers, total_targets) ##recalculate thread pool for non-duplicate sync pair tuples
+    print(f'\n🔍 Found {total_targets} sync pairs. Starting parallel updates with {max_workers} workers...\n')
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(process_sync_pair, t, token, arpio_account, role_name, 
                                    session) for t in unique_envs]
