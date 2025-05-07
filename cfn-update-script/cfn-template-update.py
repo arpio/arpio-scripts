@@ -339,9 +339,8 @@ def main():
         # needs_template_update but returns pairs that do need update
         for _ in as_completed(futures):
             template_updates.extend(_)
+    set(template_updates)
 
-    print(template_updates)
-    
     max_workers = min(max_workers, len(template_updates)) ##recalculate thread pool for non-duplicate sync pair tuples 
     print(f'\n🔍 Found {len(template_updates)} templates to upgrade. Starting parallel updates with {max_workers} workers...\n')
 
