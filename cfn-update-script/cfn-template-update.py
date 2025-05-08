@@ -329,7 +329,7 @@ def main():
     session = Session()
 
     unique_pairs = set(query_environments(token, arpio_account))
-    template_updates = []
+    template_updates = set()
     
     max_workers = min(max_workers, len(unique_pairs))
     print(f'\n🔍 Found {len(unique_pairs)} unique sync pairs. Starting parallel template update checks with {max_workers} workers...\n')
@@ -339,7 +339,6 @@ def main():
         # needs_template_update but returns pairs that do need update
         for _ in as_completed(futures):
             template_updates.extend(_)
-    set(template_updates)
 
     max_workers = min(max_workers, len(template_updates)) ##recalculate thread pool for non-duplicate sync pair tuples 
     print(f'\n🔍 Found {len(template_updates)} templates to upgrade. Starting parallel updates with {max_workers} workers...\n')
