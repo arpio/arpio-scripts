@@ -6,6 +6,8 @@
 # First-time Setup Instructions
 # 1. Make sure you have python 3 installed.  Get it here: https://www.python.org/downloads/
 # 2. Copy this script and accompanying artifacts to a folder of your choosing.
+# 3. You will need to be logged in to Amazon Web Services and have sufficient permissions to assume the OrganizationAccountAccessRole 
+# or a role that can assume the necessary permissions to update CloudFormationTemplates across multiple accounts
 
 # Usage
 # Invoke the script. When prompted, enter the following parameters:
@@ -105,11 +107,11 @@ def get_arpio_token(account_id, username, password):
     list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
     body, status, resp_headers = http_get(list_apps_url)
     if status != 401:
-        raise Exception('Expected 401 on unauthenticated GET operation')
+        raise Exception(' Expected 401 on unauthenticated GET operation')
     
     auth_url = json.loads(str(body, 'utf-8')).get('authenticateUrl')
     if not auth_url:
-        raise Exception('No authentication URL in 401 response')
+        raise Exception(' No authentication URL in 401 response')
 
     auth_url = urljoin(list_apps_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
