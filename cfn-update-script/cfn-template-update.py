@@ -55,19 +55,20 @@ cookie_jar = CookieJar()
 opener = build_opener(HTTPCookieProcessor(cookie_jar))
 
 #dataclass containing the 
-@dataclass
+@dataclass(frozen=True)
 class TemplateUpdate:
     aws_id:str
     region:str
     template:str
     stack:str
 
-@dataclass
+@dataclass(frozen=True)
 class SyncPair:
     src_id:str
     src_reg:str
     tgt_id:str
     tgt_reg:str
+
 
 def http_get(url, headers=None):
     req = Request(url, headers=headers or {}, method='GET')
@@ -155,6 +156,7 @@ def query_environments(token:str, arpio_account:str)->list[SyncPair]:
 
     return [SyncPair(app['sourceAwsAccountId'], app['sourceRegion'], app['targetAwsAccountId'], 
                                                        app['targetRegion']) for app in applications]
+
 
 def needs_template_update(token, arpio_account, sync_pair:SyncPair) -> list[TemplateUpdate]:
     url = build_arpio_url('accounts', arpio_account, 'syncPairs',
@@ -333,21 +335,34 @@ def main():
     
     max_workers = min(max_workers, len(unique_pairs))
     print(f'\n🔍 Found {len(unique_pairs)} unique sync pairs. Starting parallel template update checks with {max_workers} workers...\n')
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(needs_template_update, token, arpio_account, sync_pair) for sync_pair in unique_pairs]
-        ## build function that checks pairs for updates needed similar to 
-        # needs_template_update but returns pairs that do need update
-        for _ in as_completed(futures):
-            template_updates.extend(_)
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(needs_template_update, token, arpio_account, sync_pair) for sync_pair in unique_pairs]
+            ## build function that checks pairs for updates needed similar to 
+            # needs_template_update but returns pairs that do need update
+            for f in as_completed(futures):
+                template_updates.update(f.result())
+    except Exception as e:
+        print(f'\n❌ Exception Caught: {e} \n')
+
 
     max_workers = min(max_workers, len(template_updates)) ##recalculate thread pool for non-duplicate sync pair tuples 
+
     print(f'\n🔍 Found {len(template_updates)} templates to upgrade. Starting parallel updates with {max_workers} workers...\n')
+    if max_workers == 0:
+        print(f'\n✅ No templates to upgrade, exiting...\n')
+        exit()
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(update_template, template, session, role_name) for template in template_updates]
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(update_template, template, session, role_name) for template in template_updates]
 
-        for _ in as_completed(futures):
-            pass
+            for _ in as_completed(futures):
+                pass
+    except Exception as e:
+        print(f'\n❌ Exception Caught: {e} \n')
+
+
 
 if __name__ == '__main__':
     main()
