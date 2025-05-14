@@ -316,7 +316,6 @@ def main():
     args = parse_args()
 
     print('🛠 Arpio CloudFormation Access Template Updater\n')
-    print('DEFAULT_IAM_ROLE == OrganizationAccountAccessRole\n')
     arpio_account = args.arpio_account or input('Arpio Account ID: ').strip()
     username = args.username or input('Arpio Username (email): ').strip()
     password = args.password or getpass('Arpio Password: ')
