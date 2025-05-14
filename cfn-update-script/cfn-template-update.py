@@ -321,10 +321,7 @@ def main():
     password = args.password or getpass('Arpio Password: ')
     
     role_name = args.role_name
-    if role_name == DEFAULT_IAM_ROLE:
-        safe_print('Using default ' +DEFAULT_IAM_ROLE+ ' AWS IAM Role\n')
-    else:
-        safe_print('Using '+role_name+' for AWS IAM Role\n')
+    safe_print('Using '+role_name+' for AWS IAM Role\n')
 
     max_workers = args.max_workers
 
