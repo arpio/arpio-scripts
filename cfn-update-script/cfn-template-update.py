@@ -217,7 +217,7 @@ def get_assumed_session(boto_session, environment, role):
         region_name=region_name
     ), assumed['AssumedRoleUser']['Arn']
 
-
+# Installs access template to AWS account-region pair provided
 def install_access_template(session, aws_account, region, template_url, stack_name):
     safe_print(f'⏳ Installing template in {aws_account}/{region}')
     cfn = session.client('cloudformation')
@@ -256,47 +256,6 @@ def update_template(upd:TemplateUpdate,session:Session,role:str) -> None:
         safe_print(f'❌ Failed to update {upd.aws_id}/{upd.region} environment template:{e}')
 
 
-####deprecated
-####def process_sync_pair(app_tuple, token, arpio_account, role_name, session):
-##    (sourceAcc, sourceReg), (targetAcc, targetReg) = app_tuple
-##    try:
-##        source_stack, target_stack = needs_template_update(token, arpio_account, sourceAcc, sourceReg, targetAcc,
-##                                                       targetReg)
-##    except Exception as eTemplateCheck:
-##        safe_print(f'❌ Unable to check environment templates: {sourceAcc}/{sourceReg} & {targetAcc}/{targetReg} : Exception: {eTemplateCheck}')
-##        return
-##
-##    if not source_stack and not target_stack:
-##        safe_print(f'✅ Source environment template up to date: {sourceAcc}/{sourceReg}')
-##        safe_print(f'✅ Target environment template up to date: {targetAcc}/{targetReg}')
-##        return
-##    
-##    try:
-##        source_template, target_template = get_access_templates(arpio_account, (sourceAcc, sourceReg),
-##                                                                (targetAcc, targetReg), token)          
-##    except Exception as e:
-##        safe_print(f'❌ Failed to update template:{e}')
-##        return
-##
-##    if source_stack:
-##        try:
-##            src_sess, _ = get_assumed_session(session, (sourceAcc, sourceReg), role_name)
-##            install_access_template(src_sess, sourceAcc, sourceReg, source_template, source_stack)
-##            safe_print(f'✅ Updated source environment: {sourceAcc}/{sourceReg}')            
-##        except Exception as eSource:
-##            safe_print(f'❌ Failed to update source environment template:{eSource}')
-##    if target_stack:
-##        try:
-##            tgt_sess, _ = get_assumed_session(session, (targetAcc, targetReg), role_name)
-##            install_access_template(tgt_sess, targetAcc, targetReg, target_template, target_stack)
-##            safe_print(f'✅ Updated target environment: {targetAcc}/{targetReg}')            
-##        except Exception as eTarget:
-##            safe_print(f'❌ Failed to update target environment template:{eTarget}')
-##    return
-##
-
-
-
 # ---------- Main Program ----------
 
 
@@ -331,13 +290,12 @@ def main():
     unique_pairs = set(query_environments(token, arpio_account))
     template_updates = set()
     
-    max_workers = min(max_workers, len(unique_pairs))
+    max_workers = min(max_workers, len(unique_pairs)) ## calculate thread pool for unique syncpairs
     print(f'\n🔍 Found {len(unique_pairs)} unique sync pairs. Starting parallel template update checks with {max_workers} workers...\n')
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(needs_template_update, token, arpio_account, sync_pair) for sync_pair in unique_pairs]
-            ## build function that checks pairs for updates needed similar to 
-            # needs_template_update but returns pairs that do need update
+
             for f in as_completed(futures):
                 template_updates.update(f.result())
     except Exception as e:
