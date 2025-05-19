@@ -45,6 +45,17 @@ def safe_print(*args, **kwargs):
     with _print_lock:
         print(*args, **kwargs)
 
+# ----------- Version Chec ----------
+### Checks current Python version and warns on older than supported.
+def check_version():
+    # Checking Python version:
+    expect_major = 3
+    expect_minor = 12
+    current_version = str(version_info[0])+"."+str(version_info[1])+"."+str(version_info[2])
+    print("INFO: Script developed and tested with Python " + str(expect_major) + "." + str(expect_minor))
+    if (version_info[0], version_info[1]) < (expect_major, expect_minor):
+        print("Current Python version is unsupported: Python " + current_version)
+
 # ----------- Boto3 import check ----------   
 try:
     from boto3.session import Session 
@@ -53,8 +64,10 @@ except ImportError:
     safe_print('The "boto3" package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.')
     exit()
 
-# ---------- HTTP Utilities with urllib ----------
 
+
+# ---------- HTTP Utilities with urllib ----------
+check_version()
 cookie_jar = CookieJar()
 opener = build_opener(HTTPCookieProcessor(cookie_jar))
 
@@ -72,19 +85,6 @@ class SyncPair:
     src_reg:str
     tgt_id:str
     tgt_reg:str
-
-def check_version():
-    # Checking Python version:
-    expect_major = 3
-    expect_minor = 12
-    expect_rev = 8
-    current_version = str(version_info[0])+"."+str(version_info[1])+"."+str(version_info[2])
-    print("INFO: Script developed and tested with Python " + str(expect_major) + "." + str(expect_minor) + "." + str(expect_rev))
-    if version_info[0] < (expect_major) or version_info[1] < (expect_minor):
-        print("Current Python version was unexpected: Python " + current_version)
-        print("Recommended Python version >= " + str(expect_major) + "." + str(expect_minor))
-    else:
-        print("      Current version is: Python " + current_version)
 
 def http_get(url, headers=None):
     req = Request(url, headers=headers or {}, method='GET')
