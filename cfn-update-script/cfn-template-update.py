@@ -281,7 +281,7 @@ def parse_args():
     parser.add_argument('--role-name', '-r', default=DEFAULT_IAM_ROLE,
                         help=f'Role name to assume in each AWS account (default: {DEFAULT_IAM_ROLE})')
     parser.add_argument('--max-workers', '-w', type=int, default=20,
-                        help='Max number of sync pairs to update in parallel (default: 5)')
+                        help='Max number of sync pairs to update in parallel (default: 20)')
     return parser.parse_args()
 
 
