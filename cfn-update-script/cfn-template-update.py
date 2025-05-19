@@ -4,7 +4,8 @@
 # This script is designed to automate the process of updating AWS CloudFormation templates associated with applications managed by Arpio, an AWS disaster recovery service.
 
 # First-time Setup Instructions
-# 1. Make sure you have python 3 installed.  Get it here: https://www.python.org/downloads/
+# 1. Make sure you have python >= 3.12 installed.  Get it here: https://www.python.org/downloads/
+# 2. Make sure you have boto3 >=1.26.30 installed. See instructions here: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/quickstart.html/
 # 2. Copy this script and accompanying artifacts to a folder of your choosing.
 # 3. You will need to be logged in to Amazon Web Services and have sufficient permissions to assume the OrganizationAccountAccessRole 
 # or a role that can assume the necessary permissions to update CloudFormationTemplates across multiple accounts
@@ -21,7 +22,8 @@ import json
 import os
 import threading
 import time
-from sys import exit
+from sys import exit, version_info
+from typing import List
 from dataclasses import dataclass
 from getpass import getpass
 from urllib.error import HTTPError
@@ -43,6 +45,17 @@ def safe_print(*args, **kwargs):
     with _print_lock:
         print(*args, **kwargs)
 
+# ----------- Version Chec ----------
+### Checks current Python version and warns on older than supported.
+def check_version():
+    # Checking Python version:
+    expect_major = 3
+    expect_minor = 12
+    current_version = str(version_info[0])+"."+str(version_info[1])+"."+str(version_info[2])
+    print("INFO: Script developed and tested with Python " + str(expect_major) + "." + str(expect_minor))
+    if (version_info[0], version_info[1]) < (expect_major, expect_minor):
+        print("Current Python version is unsupported: Python " + current_version)
+
 # ----------- Boto3 import check ----------   
 try:
     from boto3.session import Session 
@@ -51,8 +64,10 @@ except ImportError:
     safe_print('The "boto3" package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.')
     exit()
 
-# ---------- HTTP Utilities with urllib ----------
 
+
+# ---------- HTTP Utilities with urllib ----------
+check_version()
 cookie_jar = CookieJar()
 opener = build_opener(HTTPCookieProcessor(cookie_jar))
 
@@ -70,7 +85,6 @@ class SyncPair:
     src_reg:str
     tgt_id:str
     tgt_reg:str
-
 
 def http_get(url, headers=None):
     req = Request(url, headers=headers or {}, method='GET')
@@ -149,7 +163,7 @@ def get_arpio_token(account_id, username, password):
     return token
 
 
-def query_environments(token:str, arpio_account:str)->list[SyncPair]:
+def query_environments(token:str, arpio_account:str)->List[SyncPair]:
     url = build_arpio_url('accounts', arpio_account, 'applications')
     body, code, _ = http_get(url, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
     if code != 200:
@@ -160,7 +174,7 @@ def query_environments(token:str, arpio_account:str)->list[SyncPair]:
                                                        app['targetRegion']) for app in applications]
 
 
-def needs_template_update(token, arpio_account, sync_pair:SyncPair) -> list[TemplateUpdate]:
+def needs_template_update(token, arpio_account, sync_pair:SyncPair) -> List[TemplateUpdate]:
     url = build_arpio_url('accounts', arpio_account, 'syncPairs',
                           sync_pair.src_id, sync_pair.src_reg, sync_pair.tgt_id, sync_pair.tgt_reg, 'access')
     body, code, _ = http_get(url, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
@@ -267,7 +281,7 @@ def parse_args():
     parser.add_argument('--role-name', '-r', default=DEFAULT_IAM_ROLE,
                         help=f'Role name to assume in each AWS account (default: {DEFAULT_IAM_ROLE})')
     parser.add_argument('--max-workers', '-w', type=int, default=20,
-                        help='Max number of sync pairs to update in parallel (default: 5)')
+                        help='Max number of sync pairs to update in parallel (default: 20)')
     return parser.parse_args()
 
 
@@ -279,6 +293,8 @@ def main():
     username = args.username or input('Arpio Username (email): ').strip()
     password = args.password or getpass('Arpio Password: ')
     
+    check_version()
+
     role_name = args.role_name
     safe_print('Using '+role_name+' for AWS IAM Role\n')
 
