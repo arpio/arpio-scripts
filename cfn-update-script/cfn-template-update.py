@@ -182,8 +182,8 @@ def needs_template_update(token, arpio_account, sync_pair:SyncPair) -> List[Temp
         raise Exception(f'Failed to query sync pair: {body.decode()}')
     info = json.loads(body)
 
-    source_stack = None if info.get('sourceIsLatest', True) else info.get('sourceCloudFormationAccessStackName')
-    target_stack = None if info.get('targetIsLatest', True) else info.get('targetCloudFormationAccessStackName')
+    source_stack = None if info.get('sourceIsLatest', True) and info.get('sourceConfigValid') else info.get('sourceCloudFormationAccessStackName')
+    target_stack = None if info.get('targetIsLatest', True) and info.get('targetConfigValid') else info.get('targetCloudFormationAccessStackName')
     updates=[]
 
     try:
@@ -200,7 +200,7 @@ def needs_template_update(token, arpio_account, sync_pair:SyncPair) -> List[Temp
         safe_print(f'✅ Source environment template up to date: {sync_pair.src_id}/{sync_pair.src_reg}')
 
     if target_stack:
-        updates.append(TemplateUpdate(sync_pair.src_id, sync_pair.src_reg, target_template, target_stack))
+        updates.append(TemplateUpdate(sync_pair.tgt_id, sync_pair.tgt_reg, target_template, target_stack))
         safe_print(f'✅ Target environment template requires update: {sync_pair.tgt_id}/{sync_pair.tgt_reg}')
     else:
         safe_print(f'✅ Target environment template up to date: {sync_pair.tgt_id}/{sync_pair.tgt_reg}')
