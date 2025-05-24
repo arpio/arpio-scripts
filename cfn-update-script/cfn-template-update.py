@@ -4,7 +4,8 @@
 # This script is designed to automate the process of updating AWS CloudFormation templates associated with applications managed by Arpio, an AWS disaster recovery service.
 
 # First-time Setup Instructions
-# 1. Make sure you have python >= 3.12 installed.  Get it here: https://www.python.org/downloads/
+# --- This script can be run in AWS Cloud Shell without modification to the shell environment ---
+# 1. Make sure you have python >= 3.9 installed.  Get it here: https://www.python.org/downloads/
 # 2. Make sure you have boto3 >=1.26.30 installed. See instructions here: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/quickstart.html/
 # 2. Copy this script and accompanying artifacts to a folder of your choosing.
 # 3. You will need to be logged in to Amazon Web Services and have sufficient permissions to assume the OrganizationAccountAccessRole 
@@ -50,11 +51,11 @@ def safe_print(*args, **kwargs):
 def check_version():
     # Checking Python version:
     expect_major = 3
-    expect_minor = 12
+    expect_minor = 9
     current_version = str(version_info[0])+"."+str(version_info[1])+"."+str(version_info[2])
     print("INFO: Script developed and tested with Python " + str(expect_major) + "." + str(expect_minor))
     if (version_info[0], version_info[1]) < (expect_major, expect_minor):
-        print("Current Python version is unsupported: Python " + current_version)
+        print("Current Python version is older than expected: Python " + current_version)
 
 # ----------- Boto3 import check ----------   
 try:
