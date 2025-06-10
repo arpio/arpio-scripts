@@ -119,7 +119,7 @@ def build_arpio_url(*path_bits):
 
 
 def get_arpio_token(account_id, username, password):
-    list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
+    list_apps_url = build_arpio_url(f'accounts')
     body, status, resp_headers = http_get(list_apps_url)
     if status != 401:
         raise Exception(' Expected 401 on unauthenticated GET operation')
