@@ -39,6 +39,12 @@ DEFAULT_NOTIFICATION_ADDRESS = 'Email'
 STACK_NAME = 'ArpioAccess'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
 NONE_ROLE = '<None>'
+# Default tag rule
+TAGRULE_DEFAULT = {
+    "ruleType": "tag",
+    "name": "arpio",
+    "value": "true"
+}
 
 
 # ----------- Version Chec ----------
@@ -187,7 +193,8 @@ def build_tag_selection_rule(tag_key, tag_value=None):
         "value": tag_value
     }
 
-def create_application(arpio_account, prod, recovery, emails, token, application_name, selection_rules, rpo):
+
+def create_application_call(arpio_account, prod, recovery, emails, token, application_name, selection_rules, rpo):
     application_url = build_arpio_url('accounts', arpio_account, 'applications')
     application_payload = {
         "name": application_name,
@@ -222,17 +229,33 @@ def load_csv_data(csv_path):
     with open(csv_path, newline='') as csvfile:
         reader = csv.DictReader(csvfile)
         return list(reader)
+    
+def create_application(row, arpio_account, username, password):
+    production_environment = parse_environment('production-environment', row['production_environment'])
+    recovery_environment = parse_environment('recovery-environment', row['recovery_environment'])
+    application_name = row['application_name']
+    recovery_point_objective = int(row.get('recovery_point_objective', 60))
+    notification_email = row.get('notification_email', DEFAULT_NOTIFICATION_ADDRESS)
+    token = get_arpio_token(arpio_account, username, password)
 
-def create_from_csv(row, arpio_account, username, password):
+    create_application_call(
+        arpio_account,
+        production_environment,
+        recovery_environment,
+        [notification_email],
+        token,
+        application_name,
+        TAGRULE_DEFAULT,  # Selection rules
+        recovery_point_objective
+    )
+    return row  # return the row for further processing
+
+def access_template_provisioning(row, arpio_account, username, password):
     production_environment = parse_environment('production-environment', row['production_environment'])
     recovery_environment = parse_environment('recovery-environment', row['recovery_environment'])
 
     production_iam_role = row.get('production_iam_role', NONE_ROLE) or NONE_ROLE
     recovery_iam_role = row.get('recovery_iam_role', NONE_ROLE) or NONE_ROLE
-
-    application_name = row['application_name']
-    recovery_point_objective = int(row.get('recovery_point_objective', 60))
-    notification_email = row.get('notification_email', DEFAULT_NOTIFICATION_ADDRESS)
 
     token = get_arpio_token(arpio_account, username, password)
 
@@ -253,9 +276,6 @@ def create_from_csv(row, arpio_account, username, password):
     inform_of_aws_account(arpio_account, production_environment[0], token)
     inform_of_aws_account(arpio_account, recovery_environment[0], token)
 
-    create_application(arpio_account, production_environment, recovery_environment, [notification_email], token,
-                       application_name, [], recovery_point_objective)
-
 if __name__ == '__main__':
     if len(sys.argv) != 2:
         print("Usage: python onboard.py input.csv")
@@ -269,9 +289,25 @@ if __name__ == '__main__':
     csv_file = sys.argv[1]
     data_rows = load_csv_data(csv_file)
 
-    for i, row in enumerate(data_rows):
-        print(f"\n--- Processing application {i + 1} of {len(data_rows)}: {row.get('application_name')} ---")
+    # Phase 1: create applications in parallel
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    created_rows = []
+
+    print("\n--- Creating applications in parallel ---")
+    with ThreadPoolExecutor() as executor:
+        future_to_row = {executor.submit(create_application, row, arpio_account, username, password): row for row in data_rows}
+        for future in as_completed(future_to_row):
+            try:
+                result_row = future.result()
+                created_rows.append(result_row)
+            except Exception as e:
+                print(f"Error creating application for row: {future_to_row[future].get('application_name')}: {e}")
+
+    # Phase 2: install templates sequentially
+    print("\n--- Installing access templates and finishing provisioning ---")
+    for i, row in enumerate(created_rows):
+        print(f"\n--- Post-provisioning for application {i + 1} of {len(created_rows)}: {row.get('application_name')} ---")
         try:
-            create_from_csv(row, arpio_account, username, password)
+            access_template_provisioning(row, arpio_account, username, password)
         except Exception as e:
-            print(f"Error processing row {i + 1}: {e}")
+            print(f"Error in post-provisioning row {i + 1}: {e}")
