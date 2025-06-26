@@ -19,7 +19,7 @@
 
 # csv format
 # Header Columns: production_environment,production_iam_role,recovery_environment,recovery_iam_role,arpio_account,username,password,application_name,recovery_point_objective (in minutes),notification_email, tag_rules
-# 123456789012/us-east-1,MyProdRole,987654321098/us-west-2,MyRecRole,arpioaccountstring,example@example.com,YourPassword,TestApp,60,notify@example.com, (key1:value1, key2:value2)
+# Examples: 123456789012/us-east-1,MyProdRole,987654321098/us-west-2,MyRecRole,arpioaccountstring,example@example.com,YourPassword,TestApp,60,notify@example.com, (key1:value1, key2:value2)
 
 
 import json
