@@ -18,18 +18,40 @@
 # By default, the script will assume the IAM role: OrganizationAccountAccessRole for each AWS account associated with an Arpio Application.
 
 # csv format
-# Header Columns: production_environment,production_iam_role,recovery_environment,recovery_iam_role,arpio_account,username,password,application_name,recovery_point_objective (in minutes),notification_email, tag_rules
+# Header Columns: primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,arpio_account,username,password,application_name,recovery_point_objective (in minutes),notification_email, tag_rules
 # Examples: 123456789012/us-east-1,MyProdRole,987654321098/us-west-2,MyRecRole,arpioaccountstring,example@example.com,YourPassword,TestApp,60,notify@example.com, (key1:value1, key2:value2)
 
 
 import json
+import time
+import os
+import csv
+import sys
+import getpass
+import argparse
+from urllib.parse import urlsplit, parse_qs, urljoin
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 from urllib.error import HTTPError
-import http.cookiejar
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from http import cookiejar
 
 # Setup cookie jar and opener
-cookie_jar = http.cookiejar.CookieJar()
+cookie_jar = cookiejar.CookieJar()
 opener = build_opener(HTTPCookieProcessor(cookie_jar))
+
+# Declare globals
+ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
+DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
+DEFAULT_ARPIO_USER = 'arpio-user-email'
+DEFAULT_NOTIFICATION_ADDRESS = 'Email'
+STACK_NAME = 'ArpioAccess'
+ARPIO_TOKEN_COOKIE = 'ArpioSession'
+NONE_ROLE = '<None>'
+DEFAULT_TAG_RULE = {
+                            "ruleType": "tag",
+                            "key": "arpio-protected",
+                            "value": "true"
+}
 
 # HTTP helper functions
 def http_get(url, headers=None):
@@ -54,31 +76,7 @@ def get_cookie_value(name):
             return cookie.value
     return None
 
-import time
-import os
-import csv
-import sys
-import getpass
-from boto3.session import Session
-from botocore.exceptions import ClientError
-from urllib.parse import urlsplit, parse_qs, urljoin
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-
-ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
-DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
-DEFAULT_ARPIO_USER = 'arpio-user-email'
-DEFAULT_NOTIFICATION_ADDRESS = 'Email'
-STACK_NAME = 'ArpioAccess'
-ARPIO_TOKEN_COOKIE = 'ArpioSession'
-NONE_ROLE = '<None>'
-DEFAULT_TAG_RULE = {
-                            "ruleType": "tag",
-                            "key": "arpio-protected",
-                            "value": "true"
-}
-
-# ----------- Version Chec ----------
+# ----------- Version Check ----------
 ### Checks current Python version and warns on older than supported.
 def check_version():
     # Checking Python version:
@@ -105,7 +103,7 @@ def build_arpio_url(*path_bits):
 
 def parse_environment(param_name, value):
     try:
-        acct, region = tuple(value.split('/')[0:2])
+        acct, region = value.split('/')[0:2]
     except ValueError:
         raise ValueError(f'{param_name} must be in format "account/region"')
     return (acct, region)
@@ -114,11 +112,11 @@ def get_arpio_token(account_id, username, password):
     list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
     body, status, resp_headers = http_get(list_apps_url)
     if status != 401:
-        raise Exception(' Expected 401 on unauthenticated GET operation')
+        raise Exception('Expected 401 on unauthenticated GET operation')
     
     auth_url = json.loads(str(body, 'utf-8')).get('authenticateUrl')
     if not auth_url:
-        raise Exception(' No authentication URL in 401 response')
+        raise Exception('No authentication URL in 401 response')
 
     auth_url = urljoin(list_apps_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
@@ -195,6 +193,7 @@ def install_access_template(session, aws_account, region, template_url, stack_na
                 TemplateURL=template_url,
                 Capabilities=['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM']
             )
+        else: raise 
 
     done = False
     while not done:
@@ -262,7 +261,7 @@ def load_csv_data(csv_path):
         return list(reader)
     
 def create_application(row, arpio_account, username, password):
-    production_environment = parse_environment('production-environment', row['production_environment'])
+    primary_environment = parse_environment('primary-environment', row['primary_environment'])
     recovery_environment = parse_environment('recovery-environment', row['recovery_environment'])
     application_name = row['application_name']
     tag_rule = row.get('tag_rules', DEFAULT_TAG_RULE)
@@ -272,7 +271,7 @@ def create_application(row, arpio_account, username, password):
 
     create_application_call(
         arpio_account,
-        production_environment,
+        primary_environment,
         recovery_environment,
         [notification_email],
         token,
@@ -283,33 +282,37 @@ def create_application(row, arpio_account, username, password):
     return row  # return the row for further processing
 
 def access_template_provisioning(row, arpio_account, username, password):
-    production_environment = parse_environment('production-environment', row['production_environment'])
+    primary_environment = parse_environment('primary-environment', row['primary_environment'])
     recovery_environment = parse_environment('recovery-environment', row['recovery_environment'])
 
-    production_iam_role = row.get('production_iam_role', NONE_ROLE) or NONE_ROLE
-    recovery_iam_role = row.get('recovery_iam_role', NONE_ROLE) or NONE_ROLE
+    primary_iam_role = row.get('primary_iam_role', NONE_ROLE)
+    recovery_iam_role = row.get('recovery_iam_role', NONE_ROLE)
 
     token = get_arpio_token(arpio_account, username, password)
 
     session = Session()
-    production_session = Session(region_name=production_environment[1])
+    primary_session = Session(region_name=primary_environment[1])
     recovery_session = Session(region_name=recovery_environment[1])
 
-    if production_iam_role != NONE_ROLE:
-        production_session, _ = get_assumed_session(session, production_environment, production_iam_role)
+    if primary_iam_role != NONE_ROLE:
+        primary_session, _ = get_assumed_session(session, primary_environment, primary_iam_role)
     if recovery_iam_role != NONE_ROLE:
         recovery_session, _ = get_assumed_session(session, recovery_environment, recovery_iam_role)
 
-    src_template, tgt_template = get_access_templates(arpio_account, production_environment, recovery_environment, token)
+    src_template, tgt_template = get_access_templates(arpio_account, primary_environment, recovery_environment, token)
 
-    install_access_template(production_session, production_environment[0], production_environment[1], src_template, STACK_NAME)
+    install_access_template(primary_session, primary_environment[0], primary_environment[1], src_template, STACK_NAME)
     install_access_template(recovery_session, recovery_environment[0], recovery_environment[1], tgt_template, STACK_NAME)
 
-    inform_of_aws_account(arpio_account, production_environment[0], token)
+    inform_of_aws_account(arpio_account, primary_environment[0], token)
     inform_of_aws_account(arpio_account, recovery_environment[0], token)
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
+    parser = argparse.ArgumentParser(prog='Application Onboarding')
+    parser.add_argument("-f", type=argparse.FileType("r"), help='name of the CSV file for %(prog) to use. See Example.')
+    args = parser.parse_args()
+
+    if len(args) != 2:
         print("Usage: python onboard.py input.csv")
         sys.exit(1)
 
@@ -318,7 +321,7 @@ if __name__ == '__main__':
     username = input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
     password = getpass.getpass('Arpio password: ')
 
-    csv_file = sys.argv[1]
+    csv_file = parser.parse_args("-f")
     data_rows = load_csv_data(csv_file)
 
     # Phase 1: create applications in parallel
