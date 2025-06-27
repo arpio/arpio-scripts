@@ -47,11 +47,7 @@ DEFAULT_NOTIFICATION_ADDRESS = 'Email'
 STACK_NAME = 'ArpioAccess'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
 NONE_ROLE = '<None>'
-DEFAULT_TAG_RULE = {
-                            "ruleType": "tag",
-                            "key": "arpio-protected",
-                            "value": "true"
-}
+DEFAULT_TAG_RULE = "arpio-protected=true"
 
 # HTTP helper functions
 def http_get(url, headers=None):
@@ -96,10 +92,9 @@ except ImportError:
     exit()
 
 
+
 def build_arpio_url(*path_bits):
-    url_bits = [ARPIO_API_ROOT]
-    url_bits.extend(path_bits)
-    return '/'.join(url_bits)
+    return '/'.join([ARPIO_API_ROOT] + list(path_bits))
 
 def parse_environment(param_name, value):
     try:
@@ -110,7 +105,7 @@ def parse_environment(param_name, value):
 
 def get_arpio_token(account_id, username, password):
     list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
-    body, status, resp_headers = http_get(list_apps_url)
+    body, status, _ = http_get(list_apps_url)
     if status != 401:
         raise Exception('Expected 401 on unauthenticated GET operation')
     
@@ -211,12 +206,6 @@ def install_access_template(session, aws_account, region, template_url, stack_na
             done = True
             print('done')
 
-def build_arn_selection_rule(resource_arns):
-    return {
-        "ruleType": "arn",
-        "arns": resource_arns
-    }
-
 def build_tag_selection_rule(tag_key, tag_value=None):
     return {
         "ruleType": "tag",
@@ -260,11 +249,24 @@ def load_csv_data(csv_path):
         reader = csv.DictReader(csvfile)
         return list(reader)
     
+
+def parse_tag_rules(tag_string:str) -> list[dict]:
+    # parses a string of the form "key=value something=else and-a-third=true" and 
+    # returns a list of dictionaries where ([key,value][something,else]])
+    tag_rules = []
+    split_tags = tag_string.split()
+    for tagpair in split_tags:
+        key, _, value  = tagpair.partition("=")
+        tag_rules.append(build_tag_selection_rule(key,value))
+    
+    return tag_rules
+
 def create_application(row, arpio_account, username, password):
     primary_environment = parse_environment('primary-environment', row['primary_environment'])
     recovery_environment = parse_environment('recovery-environment', row['recovery_environment'])
     application_name = row['application_name']
-    tag_rule = row.get('tag_rules', DEFAULT_TAG_RULE)
+    row_tag_rules = row.get('tag_rules', '').strip()
+    tag_rules = parse_tag_rules(row_tag_rules or DEFAULT_TAG_RULE)
     recovery_point_objective = int(row.get('recovery_point_objective', 60))
     notification_email = row.get('notification_email', DEFAULT_NOTIFICATION_ADDRESS)
     token = get_arpio_token(arpio_account, username, password)
@@ -276,8 +278,8 @@ def create_application(row, arpio_account, username, password):
         [notification_email],
         token,
         application_name,
-        [tag_rule],  # Selection rules
-        recovery_point_objective
+        tag_rules,  # Tag selection rules
+        recovery_point_objective # default 60m
     )
     return row  # return the row for further processing
 
@@ -308,11 +310,7 @@ def access_template_provisioning(row, arpio_account, username, password):
     inform_of_aws_account(arpio_account, recovery_environment[0], token)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(prog='Application Onboarding')
-    parser.add_argument("-f", type=argparse.FileType("r"), help='name of the CSV file for %(prog) to use. See Example.')
-    args = parser.parse_args()
-
-    if len(args) != 2:
+    if len(sys.argv) != 2:
         print("Usage: python onboard.py input.csv")
         sys.exit(1)
 
@@ -321,7 +319,7 @@ if __name__ == '__main__':
     username = input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
     password = getpass.getpass('Arpio password: ')
 
-    csv_file = parser.parse_args("-f")
+    csv_file = sys.argv[1]
     data_rows = load_csv_data(csv_file)
 
     # Phase 1: create applications in parallel
