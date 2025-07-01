@@ -1,0 +1,2 @@
+primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,arpio_account,username,application_name,recovery_point_objective (in minutes),notification_email,tag_rules
+311141562300/us-east-2,OrganizationAccountAccessRole,123012555658/us-east-1,OrganizationAccountAccessRole,bRcYQUQuX3eODn3Gv5wTQT,wsellars@arpio.io,testappuse2use1,,wsellars@arpio.io,arpio=true testec2=true
