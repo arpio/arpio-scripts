@@ -66,7 +66,7 @@ DEFAULT_ARPIO_USER = 'arpio-user-email'
 DEFAULT_NOTIFICATION_ADDRESS = 'Email'
 STACK_NAME = 'ArpioAccess'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
-NONE_ROLE = '<None>'
+NONE_ROLE = None
 DEFAULT_TAG_RULE = "arpio-protected=true"
 
 # HTTP helper functions
@@ -212,7 +212,7 @@ def get_access_templates(arpio_account, prod, recovery, token):
     return templates['sourceTemplateS3Url'], templates['targetTemplateS3Url']
 
 def install_access_template(session, aws_account, region, template_url, stack_name):
-    print(f'Installing access template in {aws_account}/{region}', end='', flush=True)
+    print(f'\nInstalling access template in {aws_account}/{region}', end='', flush=True)
     cfn = session.client('cloudformation')
     try:
         cfn.update_stack(
@@ -307,7 +307,11 @@ def access_template_provisioning(row, arpio_account, token):
         recovery_environment = parse_environment('recovery-environment', row['recovery_environment'])
 
         primary_iam_role = row.get('primary_iam_role', NONE_ROLE)
+        if not primary_iam_role:
+            primary_iam_role = NONE_ROLE
         recovery_iam_role = row.get('recovery_iam_role', NONE_ROLE)
+        if not recovery_iam_role:
+            recovery_iam_role = NONE_ROLE
 
         session = Session()
         primary_session = Session(region_name=primary_environment[1])
@@ -315,21 +319,21 @@ def access_template_provisioning(row, arpio_account, token):
 
         if primary_iam_role != NONE_ROLE:
             primary_session, _ = get_assumed_session(session, primary_environment, primary_iam_role)
-            print("primary get assumed")
         if recovery_iam_role != NONE_ROLE:
             recovery_session, _ = get_assumed_session(session, recovery_environment, recovery_iam_role)
-            print("rmecovery get assumed")
 
         src_template, tgt_template = get_access_templates(arpio_account, primary_environment, recovery_environment, token)
-        print("access templates got")
+        primary_stack_name = src_template.split('/')[-1][0:-4]
+        recover_stack_name = tgt_template.split('/')[-1][0:-4]
 
-        install_access_template(primary_session, primary_environment[0], primary_environment[1], src_template, STACK_NAME)
-        install_access_template(recovery_session, recovery_environment[0], recovery_environment[1], tgt_template, STACK_NAME)
-        print("access templates installed")
-
-        inform_of_aws_account(arpio_account, primary_environment[0], token)
-        inform_of_aws_account(arpio_account, recovery_environment[0], token)
-        print("informed")
+        with ThreadPoolExecutor() as executor:
+            src_future = executor.submit(install_access_template, primary_session, primary_environment[0], primary_environment[1], src_template, primary_stack_name)
+            tgt_future = executor.submit(install_access_template, recovery_session, recovery_environment[0], recovery_environment[1], tgt_template, recover_stack_name)
+            try:
+                src_future.result()
+                tgt_future.result()
+            except Exception as e:
+                print(f"Error installing access template for application {row.get('application_name')}: {e}")
 
     except Exception as e:
         print(f"Error in provisioning: {e}")
@@ -352,6 +356,7 @@ if __name__ == '__main__':
     csv_file = sys.argv[1]
     data_rows = load_csv_data(csv_file)
     token = get_arpio_token(arpio_account, username, password)
+
 
     # Phase 1: create applications in parallel
     created_rows = []
