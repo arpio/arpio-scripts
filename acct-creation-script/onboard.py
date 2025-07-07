@@ -17,6 +17,7 @@
 # Usage
 # Invoke the script, with the required command line argument of the CSV location, and 
 # optional command line arguments for the Arpio Account ID, Arpio Username, and Arpio Password.
+# The Arpio password can be provided via an environmental variable named ARPIO_PASSWORD, as well.
 #
 # If the Arpio Account ID, Arpio Username, and Arpio Password aren't provided in the command line,
 # when prompted, enter the following parameters:
@@ -24,7 +25,7 @@
 # 1. Arpio Account ID (Navigate to Settings > Account in the Arpio console 
 #    and copy the string following 'Account ID: ')
 # 2. Arpio User ID (This will be the email address you use to login to the Arpio application)
-# 3. Arpio Password (The password you use to login the user ID from step 2)
+# 3. Arpio Password 
 
 # By default, the script will assume the IAM role: OrganizationAccountAccessRole 
 # for each AWS account associated with an Arpio Application.
@@ -358,7 +359,7 @@ if __name__ == '__main__':
     print(f'Arpio Environment: [{ARPIO_API_ROOT}]')
     arpio_account = args.arpio_account or input(f'Arpio account ID [{DEFAULT_ARPIO_ACCOUNT}]: ') or DEFAULT_ARPIO_ACCOUNT
     username = args.username or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
-    password = args.password or getpass.getpass('Arpio password: ')
+    password = (args.password or os.getenv("ARPIO_PASSWORD")) or getpass.getpass('Arpio password: ')
 
     csv_file = args.csv_file
     data_rows = load_csv_data(csv_file)
