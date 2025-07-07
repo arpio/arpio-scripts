@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 # Copyright 2025 Arpio, Inc.
 
-# This script is designed to automate the process of creating Arpio Applications and their accompanying AWS CloudFormation templates.
+# This script is designed to automate the process of creating Arpio Applications and 
+# their accompanying AWS CloudFormation templates.
 
 # First-time Setup Instructions
-# 1. Make sure you have python >= 3.12 installed.  Get it here: https://www.python.org/downloads/
-# 2. Make sure you have boto3 >=1.26.30 installed. See instructions here: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/quickstart.html/
+# 1. Make sure you have python >= 3.12 installed.  
+#    Get it here: https://www.python.org/downloads/
+# 2. Make sure you have boto3 >=1.26.30 installed. 
+#    See instructions here: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/quickstart.html/
 # 2. Copy this script and accompanying artifacts to a folder of your choosing.
-# 3. You will need to be logged in to Amazon Web Services and have sufficient permissions to assume the OrganizationAccountAccessRole 
-# or a role that can assume the necessary permissions to update CloudFormationTemplates across multiple accounts
+# 3. You will need to be logged in to Amazon Web Services and have sufficient permissions 
+#    to assume the OrganizationAccountAccessRole or a role that can assume the necessary 
+#    permissions to update CloudFormationTemplates across multiple accounts
 
 # Usage
 # Invoke the script, with the required command line argument of the CSV location, and 
@@ -17,10 +21,13 @@
 # If the Arpio Account ID, Arpio Username, and Arpio Password aren't provided in the command line,
 # when prompted, enter the following parameters:
 #
-# 1. Arpio Account ID (Navigate to Settings > Account in the Arpio console and copy the string following 'Account ID: ')
+# 1. Arpio Account ID (Navigate to Settings > Account in the Arpio console 
+#    and copy the string following 'Account ID: ')
 # 2. Arpio User ID (This will be the email address you use to login to the Arpio application)
 # 3. Arpio Password (The password you use to login the user ID from step 2)
-# By default, the script will assume the IAM role: OrganizationAccountAccessRole for each AWS account associated with an Arpio Application.
+
+# By default, the script will assume the IAM role: OrganizationAccountAccessRole 
+# for each AWS account associated with an Arpio Application.
 
 # .CSV file format example
 # Header Columns: primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,arpio_account,username,application_name,recovery_point_objective (in minutes),notification_email, tag_rules
