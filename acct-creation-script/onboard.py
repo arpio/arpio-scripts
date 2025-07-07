@@ -6,9 +6,9 @@
 
 # First-time Setup Instructions
 # 1. Make sure you have python >= 3.9 installed.  
-#    Get it here: https://www.python.org/downloads/
+#    Get it here: https://www.python.org/downloads
 # 2. Make sure you have boto3 >=1.26.30 installed. 
-#    See instructions here: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/quickstart.html/
+#    See instructions here: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/quickstart.html
 # 2. Copy this script and accompanying artifacts to a folder of your choosing.
 # 3. You will need to be logged in to Amazon Web Services and have sufficient permissions 
 #    to assume the OrganizationAccountAccessRole or a role that can assume the necessary 
@@ -26,7 +26,7 @@
 # 2. Arpio User ID (This will be the email address you use to login to the Arpio application)
 # 3. Arpio Password (The password you use to login the user ID from step 2)
 
-# By default, the script will assume the IAM role: OrganizationAccountAccess Role 
+# By default, the script will assume the IAM role: OrganizationAccountAccessRole 
 # for each AWS account associated with an Arpio Application.
 
 # .CSV file format example
@@ -100,10 +100,7 @@ def http_post(url, data=None, headers=None):
         return e.read(), e.code, e.headers
 
 def get_cookie_value(name):
-    for cookie in cookie_jar:
-        if cookie.name == name:
-            return cookie.value
-    return None
+    return next( (cookie.value for cookie in cookie_jar if cookie.name == name), None)
 
 # Helper Functions
 def build_arpio_url(*path_bits):
