@@ -11,7 +11,12 @@
 # or a role that can assume the necessary permissions to update CloudFormationTemplates across multiple accounts
 
 # Usage
-# Invoke the script, with the location of the CSV as the only Argument. When prompted, enter the following parameters:
+# Invoke the script, with the required command line argument of the CSV location, and 
+# optional command line arguments for the Arpio Account ID, Arpio Username, and Arpio Password.
+#
+# If the Arpio Account ID, Arpio Username, and Arpio Password aren't provided in the command line,
+# when prompted, enter the following parameters:
+#
 # 1. Arpio Account ID (Navigate to Settings > Account in the Arpio console and copy the string following 'Account ID: ')
 # 2. Arpio User ID (This will be the email address you use to login to the Arpio application)
 # 3. Arpio Password (The password you use to login the user ID from step 2)
