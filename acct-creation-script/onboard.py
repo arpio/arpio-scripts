@@ -5,7 +5,7 @@
 # their accompanying AWS CloudFormation templates.
 
 # First-time Setup Instructions
-# 1. Make sure you have python >= 3.12 installed.  
+# 1. Make sure you have python >= 3.9 installed.  
 #    Get it here: https://www.python.org/downloads/
 # 2. Make sure you have boto3 >=1.26.30 installed. 
 #    See instructions here: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/quickstart.html/
@@ -26,7 +26,7 @@
 # 2. Arpio User ID (This will be the email address you use to login to the Arpio application)
 # 3. Arpio Password (The password you use to login the user ID from step 2)
 
-# By default, the script will assume the IAM role: OrganizationAccountAccessRole 
+# By default, the script will assume the IAM role: OrganizationAccountAccess Role 
 # for each AWS account associated with an Arpio Application.
 
 # .CSV file format example
@@ -355,7 +355,6 @@ if __name__ == '__main__':
     parser.add_argument('--arpio_account', help='Arpio Account ID')
     parser.add_argument('--username', help='Arpio Username')
     parser.add_argument('--password', help='Arpio Password')
-
     args = parser.parse_args()
     
     print("=== Arpio Onboarding Script ===")
@@ -364,7 +363,7 @@ if __name__ == '__main__':
     username = args.username or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
     password = args.password or getpass.getpass('Arpio password: ')
 
-    csv_file = sys.argv[1]
+    csv_file = args.csv_file
     data_rows = load_csv_data(csv_file)
 
     try:
