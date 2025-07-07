@@ -11,7 +11,7 @@
 # or a role that can assume the necessary permissions to update CloudFormationTemplates across multiple accounts
 
 # Usage
-# Invoke the script, with the location of the CSV and the . When prompted, enter the following parameters:
+# Invoke the script, with the location of the CSV as the only Argument. When prompted, enter the following parameters:
 # 1. Arpio Account ID (Navigate to Settings > Account in the Arpio console and copy the string following 'Account ID: ')
 # 2. Arpio User ID (This will be the email address you use to login to the Arpio application)
 # 3. Arpio Password (The password you use to login the user ID from step 2)
@@ -29,6 +29,7 @@ import csv
 import sys
 import getpass
 import threading
+import argparse
 from urllib.parse import urlsplit, parse_qs, urljoin
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 from urllib.error import HTTPError
@@ -337,15 +338,19 @@ def access_template_provisioning(row, arpio_account, token):
      
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print("Usage: python onboard.py input.csv")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description='Arpio Onboarding Script')
+    parser.add_argument('csv_file', help='Path to input CSV file')
+    parser.add_argument('--arpio_account', help='Arpio Account ID')
+    parser.add_argument('--username', help='Arpio Username')
+    parser.add_argument('--password', help='Arpio Password')
+
+    args = parser.parse_args()
     
     print("=== Arpio Onboarding Script ===")
     print(f'Arpio Environment: [{ARPIO_API_ROOT}]')
-    arpio_account = input(f'Arpio account ID [{DEFAULT_ARPIO_ACCOUNT}]: ') or DEFAULT_ARPIO_ACCOUNT
-    username = input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
-    password = getpass.getpass('Arpio password: ')
+    arpio_account = args.arpio_account or input(f'Arpio account ID [{DEFAULT_ARPIO_ACCOUNT}]: ') or DEFAULT_ARPIO_ACCOUNT
+    username = args.username or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
+    password = args.password or getpass.getpass('Arpio password: ')
 
     csv_file = sys.argv[1]
     data_rows = load_csv_data(csv_file)
@@ -354,6 +359,7 @@ if __name__ == '__main__':
         token = get_arpio_token(arpio_account, username, password)
     except Exception as e:
         print(f"{e}")
+        sys.exit(1)
 
     # Phase 1: create applications in parallel
     created_rows = []
