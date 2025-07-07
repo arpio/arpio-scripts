@@ -5,8 +5,8 @@
 
 # First-time Setup Instructions
 # --- This script can be run in AWS Cloud Shell without modification to the shell environment ---
-# 1. Make sure you have python >= 3.9 installed.  Get it here: https://www.python.org/downloads/
-# 2. Make sure you have boto3 >=1.26.30 installed. See instructions here: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/quickstart.html/
+# 1. Make sure you have python >= 3.9 installed.  Get it here: https://www.python.org/downloads
+# 2. Make sure you have boto3 >=1.26.30 installed. See instructions here: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/quickstart.html
 # 2. Copy this script and accompanying artifacts to a folder of your choosing.
 # 3. You will need to be logged in to Amazon Web Services and have sufficient permissions to assume the OrganizationAccountAccessRole 
 # or a role that can assume the necessary permissions to update CloudFormationTemplates across multiple accounts
@@ -106,10 +106,8 @@ def http_post(url, data=None, headers=None):
 
 
 def get_cookie_value(name):
-    for cookie in cookie_jar:
-        if cookie.name == name:
-            return cookie.value
-    return None
+    return next((cookie.value for cookie in cookie_jar if cookie.name == name), None)
+
 
 # ---------- Arpio API Functions ----------
 
@@ -192,7 +190,7 @@ def needs_template_update(token, arpio_account, sync_pair:SyncPair) -> List[Temp
             source_template, target_template = get_access_templates(arpio_account, sync_pair, token)
     except Exception as e:
         safe_print(f'❌ Unable to check environment templates:  {sync_pair.src_id}/{sync_pair.src_reg} & {sync_pair.tgt_id}/{sync_pair.tgt_reg} - Exception: {e}')
-        return
+        return updates
     
     if source_stack:
         updates.append(TemplateUpdate(sync_pair.src_id, sync_pair.src_reg, source_template, source_stack))
