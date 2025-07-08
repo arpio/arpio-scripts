@@ -63,7 +63,7 @@ try:
     from botocore.exceptions import ClientError     
 except ImportError:
     safe_print('The "boto3" package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.')
-    exit()
+    exit(1)
 
 
 
@@ -322,7 +322,7 @@ def main():
     print(f'\n🔍 Found {len(template_updates)} templates to upgrade. Starting parallel updates with {max_workers} workers...\n')
     if max_workers == 0:
         print(f'\n✅ No templates to upgrade, exiting...\n')
-        exit()
+        exit(1)
 
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
