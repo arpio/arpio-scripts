@@ -55,7 +55,7 @@ try:
     from botocore.exceptions import ClientError     
 except ImportError:
     print('The "boto3" package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.')
-    exit()
+    exit(1)
 
 # ----------- Multi-threaded printing capability ----------
 ### Thread-safe print function that prevents output from interleaving.
@@ -144,6 +144,7 @@ def add_aws_account_id(account_id, aws_account_id, token):
         'name' : aws_account_id
         }
     body, code, _ = http_post(url, data= payload, headers={ARPIO_TOKEN_COOKIE: token, 'Content-Type': 'application/json'})
+    #Ignoring 409 as we return that for when an account already exists and the script should continue on to other applications if one fails.
     if code not in {204,409,200}:
         raise Exception(f'❌ Failed to add aws account: {body.decode()} ')
 
@@ -331,11 +332,11 @@ def access_template_provisioning(row, arpio_account, token):
 
         src_template, tgt_template = get_access_templates(arpio_account, primary_environment, recovery_environment, token)
         primary_stack_name = src_template.split('/')[-1][0:-4]
-        recover_stack_name = tgt_template.split('/')[-1][0:-4]
+        recovery_stack_name = tgt_template.split('/')[-1][0:-4]
 
         with ThreadPoolExecutor() as executor:
             src_future = executor.submit(install_access_template, primary_session, primary_environment[0], primary_environment[1], src_template, primary_stack_name)
-            tgt_future = executor.submit(install_access_template, recovery_session, recovery_environment[0], recovery_environment[1], tgt_template, recover_stack_name)
+            tgt_future = executor.submit(install_access_template, recovery_session, recovery_environment[0], recovery_environment[1], tgt_template, recovery_stack_name)
             try:
                 src_future.result()
                 tgt_future.result()
