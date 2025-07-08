@@ -1,2 +1,2 @@
-primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,arpio_account,username,application_name,recovery_point_objective (in minutes),notification_email,tag_rules
-123456789012/us-east-1,MyProdRole,987654321098/us-west-2,MyRecRole,arpioaccountstring (22char),example@example.com,TestApp,60,notify@example.com,key=value something=else and-a-third=true
+primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,application_name,recovery_point_objective (in minutes),notification_email,tag_rules
+123456789012/us-east-1,MyProdRole,987654321098/us-west-2,MyRecRole,TestApp,60,notify@example.com,key=value something=else and-a-third=true
