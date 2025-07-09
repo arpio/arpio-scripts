@@ -31,8 +31,8 @@
 # for each AWS account associated with an Arpio Application.
 
 # .CSV file format example
-# Header Columns: primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,arpio_account,username,application_name,recovery_point_objective (in minutes),notification_email, tag_rules
-# Examples: 123456789012/us-east-1,MyProdRole,987654321098/us-west-2,MyRecRole,arpioaccountstring,example@example.com,TestApp,60,notify@example.com,key=value something=else and-a-third=true
+# Header Columns: primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,application_name,recovery_point_objective (in minutes),notification_email, tag_rules
+# Examples: 123456789012/us-east-1,MyProdRole,987654321098/us-west-2,MyRecRole,TestApp,60,notify@example.com,key=value something=else and-a-third=true
 
 
 import json
@@ -197,7 +197,7 @@ def get_arpio_token(account_id, username, password):
 
 def get_assumed_session(boto_session, environment, role):
     region_name = environment[1]
-    sts = boto_session.client('sts', region_name=region_name)
+    sts = boto_session.client('sts') #removed region-name for opt-in regions 
     role_arn = f'arn:aws:iam::{environment[0]}:role/{role}'
     assumed = sts.assume_role(RoleArn=role_arn, RoleSessionName='arpio_provisioning')
     assumed_session = Session(
