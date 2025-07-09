@@ -1,3 +1,4 @@
 click==8.0.3
 urllib3>=2.2.0
-pyOpenSSL==latest
+pyOpenSSL>=25.1.0
+
