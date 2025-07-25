@@ -53,14 +53,19 @@ def cli(account_id: str, start: str | None, end: str | None, api_hostname: str, 
     or END is not specified, the search is unconstrained on those ends.
 
     Dates in ISO 8601 format with microsecond precision are supported.
-    For example:
+    An example with UTC time zone:
 
         2025-07-23T19:55:10.001002Z
 
     Less precision may be used for convenience:
 
-        2025-07-23              (local time)
-        2025-07-23T19:55        (local time)
+        2025-07-23              (start of day in local time zone)
+
+        2025-07-23T19:55        (19:55 in local time zone)
+
+        2025-07-23T19:55-4      (19:55 in the UTC - 4 time zone)
+
+        2025-07-23T00:00Z       (start of UTC day)
 
     If no time zone is present in a time string, the system's local time zone
     is used
