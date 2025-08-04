@@ -145,22 +145,23 @@ def add_aws_account_id(account_id, aws_account_id, token):
         }
     body, code, _ = http_post(url, data= payload, headers={ARPIO_TOKEN_COOKIE: token, 'Content-Type': 'application/json'})
     #Ignoring 409 as we return that for when an account already exists and the script should continue on to other applications if one fails.
-    if code not in {204,409,200}:
-        raise Exception(f'❌ Failed to add aws account: {body.decode()} ')
+    if code not in {201,204,409,200}:
+        raise Exception(f'❌ Failed to add aws account: {body.decode()} : Error code: {code}')
+
 
 
 # Application Functions
 def get_arpio_token(account_id, username, password):
-    list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
-    body, status, _ = http_get(list_apps_url)
+    list_account_url = build_arpio_url(f'accounts')
+    body, status, _ = http_get(list_account_url)
     if status != 401:
         raise Exception('❌ Expected 401 on unauthenticated GET operation')
-    
+
     auth_url = json.loads(str(body, 'utf-8')).get('authenticateUrl')
     if not auth_url:
         raise Exception('❌ No authentication URL in 401 response')
     
-    auth_url = urljoin(list_apps_url, auth_url)
+    auth_url = urljoin(list_account_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
     auth_response = json.loads(auth_body)
 
@@ -191,8 +192,10 @@ def get_arpio_token(account_id, username, password):
         raise Exception(f'❌ Native ACS login failed: {body.decode()}')
 
     token = get_cookie_value(ARPIO_TOKEN_COOKIE)
+
     if not token:
         raise Exception('❌ Failed to retrieve Arpio session token')
+    
     return token
 
 def get_assumed_session(boto_session, environment, role):
@@ -252,19 +255,6 @@ def install_access_template(session, aws_account, region, template_url, stack_na
             break
         elif status in failed_status:
             raise Exception(f'❌ Failed to install template in AWS: {aws_account}/{region}: {status}')
-        
-def inform_of_aws_account(arpio_account, aws_account_id, token):
-    account_get_url = build_arpio_url('accounts', arpio_account, 'awsAccounts', aws_account_id)
-    body, code, _ =http_get(account_get_url, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
-    if code == 404:
-        account_post_url = build_arpio_url('accounts', arpio_account, 'awsAccounts')
-        account_payload = {
-            "awsAccountId": aws_account_id,
-            "name": aws_account_id,
-        }
-        body, code, _ =http_post(account_post_url, data=account_payload, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
-    if code != 201:
-        raise Exception(f'❌ Failed to create aws account: {body.decode()}')
             
 def create_application_call(arpio_account, prod, recovery, emails, token, application_name, selection_rules, rpo):
     application_url = build_arpio_url('accounts', arpio_account, 'applications')
@@ -294,8 +284,13 @@ def create_application(row, arpio_account, token):
     recovery_point_objective = int(row.get('recovery_point_objective', 60))
     notification_email = row.get('notification_email', DEFAULT_NOTIFICATION_ADDRESS)
 
-    add_aws_account_id(arpio_account, primary_environment[0], token)
-    add_aws_account_id(arpio_account, recovery_environment[0], token)
+    with ThreadPoolExecutor() as executor:
+        src_future = executor.submit(add_aws_account_id, arpio_account, primary_environment[0], token)
+        tgt_future = executor.submit(add_aws_account_id, arpio_account, recovery_environment[0], token)
+        src_future.result()
+        tgt_future.result()
+
+    
     
     create_application_call(
         arpio_account,
