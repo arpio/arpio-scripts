@@ -70,7 +70,7 @@ cookie_jar = cookiejar.CookieJar()
 opener = build_opener(HTTPCookieProcessor(cookie_jar))
 
 # Declare globals
-ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio-dev.io/api'
+ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 
 DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
 DEFAULT_ARPIO_USER = 'arpio-user-email'
