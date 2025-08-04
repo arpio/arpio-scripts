@@ -156,7 +156,7 @@ def get_arpio_token(account_id, username, password):
     body, status, _ = http_get(list_apps_url)
     if status != 401:
         raise Exception('❌ Expected 401 on unauthenticated GET operation')
-    
+
     auth_url = json.loads(str(body, 'utf-8')).get('authenticateUrl')
     if not auth_url:
         raise Exception('❌ No authentication URL in 401 response')
