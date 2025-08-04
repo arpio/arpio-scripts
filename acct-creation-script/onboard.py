@@ -146,7 +146,7 @@ def add_aws_account_id(account_id, aws_account_id, token):
     body, code, _ = http_post(url, data= payload, headers={ARPIO_TOKEN_COOKIE: token, 'Content-Type': 'application/json'})
     #Ignoring 409 as we return that for when an account already exists and the script should continue on to other applications if one fails.
     if code not in {201,204,409,200}:
-        raise Exception(f'❌ Failed to add aws account: {body.decode()} : Error code: {code} ')
+        raise Exception(f'❌ Failed to add aws account: {body.decode()} : Error code: {code}')
 
 
 
