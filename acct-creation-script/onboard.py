@@ -43,6 +43,7 @@ import sys
 import getpass
 import threading
 import argparse
+import re
 from urllib.parse import urlsplit, parse_qs, urljoin
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 from urllib.error import HTTPError
@@ -71,7 +72,6 @@ opener = build_opener(HTTPCookieProcessor(cookie_jar))
 
 # Declare globals
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
-
 DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
 DEFAULT_ARPIO_USER = 'arpio-user-email'
 DEFAULT_NOTIFICATION_ADDRESS = 'Email'
@@ -79,6 +79,7 @@ STACK_NAME = 'ArpioAccess'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
 NONE_ROLE = None
 DEFAULT_TAG_RULE = "arpio-protected=true"
+
 
 # HTTP helper functions
 def http_get(url, headers=None):
@@ -104,6 +105,17 @@ def get_cookie_value(name):
     return next( (cookie.value for cookie in cookie_jar if cookie.name == name), None)
 
 # Helper Functions
+def check_email(email):
+
+    regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
+    # pass the regular expression
+    # and the string into the fullmatch() method
+    if(re.fullmatch(regex, email)):
+        return False
+    else:
+        print("It seems as if that is an invalid email, please check your username and try again")
+        return True
+
 def build_arpio_url(*path_bits):
     return '/'.join([ARPIO_API_ROOT] + list(path_bits))
 
@@ -137,22 +149,28 @@ def parse_tag_rules(tag_string:str) -> list[dict]:
     
     return tag_rules
 
-def add_aws_account_id(account_id, aws_account_id, token):
+def add_aws_account_id(account_id, aws_account_id, arpio_auth_header=dict):
     url = build_arpio_url(f'accounts/{account_id}/awsAccounts')
     payload = {
         'awsAccountId': aws_account_id,
         'name' : aws_account_id
         }
-    body, code, _ = http_post(url, data= payload, headers={ARPIO_TOKEN_COOKIE: token, 'Content-Type': 'application/json'})
+    body, code, _ = http_get(url, headers=arpio_auth_header)
+    if aws_account_id in body.decode():
+        raise Exception(f'AWS account already added to Arpio')
+
+    body, code, _ = http_post(url, data= payload, headers=(arpio_auth_header | {'Content-Type': 'application/json'}))
     #Ignoring 409 as we return that for when an account already exists and the script should continue on to other applications if one fails.
-    if code not in {204,409,200}:
-        raise Exception(f'❌ Failed to add aws account: {body.decode()} ')
+    if code not in {200,201,204,409}:
+        raise Exception(f'❌ Failed to add aws account: {body.decode()} : Error: {code}')
+    if code == 409:
+        raise Exception(f'AWS account already added to Arpio')
 
 
 # Application Functions
-def get_arpio_token(account_id, username, password):
-    list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
-    body, status, _ = http_get(list_apps_url)
+def get_arpio_token(username, password):
+    list_account_url = build_arpio_url(f'accounts')
+    body, status, _ = http_get(list_account_url)
     if status != 401:
         raise Exception('❌ Expected 401 on unauthenticated GET operation')
     
@@ -160,7 +178,7 @@ def get_arpio_token(account_id, username, password):
     if not auth_url:
         raise Exception('❌ No authentication URL in 401 response')
     
-    auth_url = urljoin(list_apps_url, auth_url)
+    auth_url = urljoin(list_account_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
     auth_response = json.loads(auth_body)
 
@@ -210,10 +228,10 @@ def get_assumed_session(boto_session, environment, role):
     caller = assumed_sts.get_caller_identity()
     return assumed_session, caller
 
-def get_access_templates(arpio_account, prod, recovery, token):
+def get_access_templates(arpio_account, prod, recovery, arpio_auth_header):
     url = build_arpio_url('accounts', arpio_account, 'syncPairs',
                           prod[0], prod[1], recovery[0], recovery[1], 'accessTemplates')
-    body, code, _ = http_get(url, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
+    body, code, _ = http_get(url, headers={arpio_auth_header})
     if code != 200:
         raise Exception(f'❌ Failed to get access templates: {body.decode()}')
     templates = json.loads(body)
@@ -252,21 +270,8 @@ def install_access_template(session, aws_account, region, template_url, stack_na
             break
         elif status in failed_status:
             raise Exception(f'❌ Failed to install template in AWS: {aws_account}/{region}: {status}')
-        
-def inform_of_aws_account(arpio_account, aws_account_id, token):
-    account_get_url = build_arpio_url('accounts', arpio_account, 'awsAccounts', aws_account_id)
-    body, code, _ =http_get(account_get_url, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
-    if code == 404:
-        account_post_url = build_arpio_url('accounts', arpio_account, 'awsAccounts')
-        account_payload = {
-            "awsAccountId": aws_account_id,
-            "name": aws_account_id,
-        }
-        body, code, _ =http_post(account_post_url, data=account_payload, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
-    if code != 201:
-        raise Exception(f'❌ Failed to create aws account: {body.decode()}')
             
-def create_application_call(arpio_account, prod, recovery, emails, token, application_name, selection_rules, rpo):
+def create_application_call(arpio_account, prod, recovery, emails, arpio_auth_header, application_name, selection_rules, rpo):
     application_url = build_arpio_url('accounts', arpio_account, 'applications')
     application_payload = {
         "name": application_name,
@@ -279,13 +284,16 @@ def create_application_call(arpio_account, prod, recovery, emails, token, applic
         "rpo": rpo * 60,
         "notificationEmails": emails
     }
-    body, code, _ = http_post(application_url, data= application_payload, headers={ARPIO_TOKEN_COOKIE: token, 'Content-Type': 'application/json'})
+
+    body, code, _ = http_post(application_url, data= application_payload, headers={(arpio_auth_header | {'Content-Type': 'application/json'})})
     if code != 201:
         raise Exception(f'❌ Failed to create application: {body.decode()}')
+    if code == 409:
+        raise Exception(f'Application already exists, continuing...')
+    else:
+        safe_print(f'✅ Arpio application "{application_name}" has been created.')
 
-    safe_print(f'✅ Arpio application "{application_name}" has been created.')
-
-def create_application(row, arpio_account, token):
+def create_application(row, arpio_account, arpio_auth_header):
     primary_environment = parse_environment('primary-environment', row['primary_environment'])
     recovery_environment = parse_environment('recovery-environment', row['recovery_environment'])
     application_name = row['application_name']
@@ -294,22 +302,41 @@ def create_application(row, arpio_account, token):
     recovery_point_objective = int(row.get('recovery_point_objective', 60))
     notification_email = row.get('notification_email', DEFAULT_NOTIFICATION_ADDRESS)
 
-    add_aws_account_id(arpio_account, primary_environment[0], token)
-    add_aws_account_id(arpio_account, recovery_environment[0], token)
-    
-    create_application_call(
-        arpio_account,
-        primary_environment,
-        recovery_environment,
-        [notification_email],
-        token,
-        application_name,
-        tag_rules,  # Tag selection rules
-        recovery_point_objective # default 60m
-    )
-    return row  # return the row for further processing
+    ##check if application exists via name and skip if so
+    body, code, _ = http_get(build_arpio_url('accounts', arpio_account, 'applications'), headers=arpio_auth_header)
 
-def access_template_provisioning(row, arpio_account, token):
+    if str(application_name) in body.decode():
+        print(f'Arpio Application with this name already exists, skipping creation...')
+        return row
+    else:
+        with ThreadPoolExecutor() as executor:
+            try:
+                src_future = executor.submit(add_aws_account_id, arpio_account, primary_environment[0], arpio_auth_header)
+            except Exception as e:
+                print(e)
+            try:
+                tgt_future = executor.submit(add_aws_account_id, arpio_account, recovery_environment[0], arpio_auth_header)
+            except Exception as e:
+                print(e)
+            src_future.result()
+            tgt_future.result()
+
+        try:
+            create_application_call(
+                arpio_account,
+                primary_environment,
+                recovery_environment,
+                [notification_email],
+                token,
+                application_name,
+                tag_rules,  # Tag selection rules
+                recovery_point_objective # default 60m
+            )
+        except Exception as e:
+            print(e)
+        return row  # return the row for further processing
+
+def access_template_provisioning(row, arpio_account, arpio_auth_header):
     try:
         primary_environment = parse_environment('primary-environment', row['primary_environment'])
         recovery_environment = parse_environment('recovery-environment', row['recovery_environment'])
@@ -330,7 +357,7 @@ def access_template_provisioning(row, arpio_account, token):
         if recovery_iam_role != NONE_ROLE:
             recovery_session, _ = get_assumed_session(session, recovery_environment, recovery_iam_role)
 
-        src_template, tgt_template = get_access_templates(arpio_account, primary_environment, recovery_environment, token)
+        src_template, tgt_template = get_access_templates(arpio_account, primary_environment, recovery_environment, arpio_auth_header)
         primary_stack_name = src_template.split('/')[-1][0:-4]
         recovery_stack_name = tgt_template.split('/')[-1][0:-4]
 
@@ -350,32 +377,59 @@ def access_template_provisioning(row, arpio_account, token):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Arpio Onboarding Script')
-    parser.add_argument('csv_file', help='Path to input CSV file')
-    parser.add_argument('--arpio_account', help='Arpio Account ID')
-    parser.add_argument('--username', help='Arpio Username')
-    parser.add_argument('--password', help='Arpio Password')
+    parser.add_argument('--csv', help='Path to input CSV file')
+    parser.add_argument('-a', '--arpio_account', help='Arpio Account ID', required=True)
+    parser.add_argument('-auth', '--auth_type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
+                        API keys may be stored as an environmental variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
+                        If using Token authentication, provide the username and password arguments to the script. \
+                        Both username and password can be stored as environmental \
+                        variables under \"ARPIO_USERNAME\" and \"ARPIO_PASSWORD\"',
+                        required=True, choices=['api','token'], default='token')
+    parser.add_argument('-u', '--username', help='Arpio Username')
+    parser.add_argument('-p', '--password', help='Arpio Password')
+    parser.add_argument('-k', '--api_key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
     args = parser.parse_args()
     
     print("=== Arpio Onboarding Script ===")
     print(f'Arpio Environment: [{ARPIO_API_ROOT}]')
+
     arpio_account = args.arpio_account or input(f'Arpio account ID [{DEFAULT_ARPIO_ACCOUNT}]: ') or DEFAULT_ARPIO_ACCOUNT
-    username = args.username or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
+    username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
+    if check_email(username):
+        sys.exit(1)
     password = (args.password or os.getenv("ARPIO_PASSWORD")) or getpass.getpass('Arpio password: ')
 
-    csv_file = args.csv_file
+
+
+    if args.auth_type == 'api' and args.api_key is None:
+        parser.error('--auth_type api requires --api_key to be set')
+        sys.exit(1)
+
+    if args.auth_type == 'api':
+        api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
+        arpio_auth_header = {'X-Api-Key': api_key}
+    elif args.auth_type == 'token':
+        try:
+            token = get_arpio_token(username, password)
+            arpio_auth_header = {ARPIO_TOKEN_COOKIE: token}
+        except Exception as e:
+            print(f"{e}")
+            sys.exit(1)
+    else:
+        print(f'Missing arguments for authentication type. Please check your arguments and try again.')    
+        sys.exit(1)    
+
+
+    csv_file = args.csv
     data_rows = load_csv_data(csv_file)
 
-    try:
-        token = get_arpio_token(arpio_account, username, password)
-    except Exception as e:
-        print(f"{e}")
-        sys.exit(1)
+
 
     # Phase 1: create applications in parallel
     created_rows = []
     print("\n--- Creating applications in parallel ---")
     with ThreadPoolExecutor() as executor:
-        future_to_row = {executor.submit(create_application, row, arpio_account, token): row for row in data_rows}
+        future_to_row = {executor.submit(create_application, row, arpio_account, arpio_auth_header): row for row in data_rows}
         for future in as_completed(future_to_row):
             try:
                 result_row = future.result()
@@ -388,7 +442,7 @@ if __name__ == '__main__':
     for i, row in enumerate(data_rows):
         print(f"\n--- Access Template provisioning for application {i + 1} of {len(data_rows)}: {row.get('application_name')} ---")
         try:
-            access_template_provisioning(row, arpio_account, token)
+            access_template_provisioning(row, arpio_account, arpio_auth_header)
         except Exception as e:
             safe_print(f"❌ Error in Template Provisioning row {i + 1}: {e}")
 
