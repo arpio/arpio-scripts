@@ -173,11 +173,12 @@ def get_arpio_token(username, password):
     body, status, _ = http_get(list_account_url)
     if status != 401:
         raise Exception('❌ Expected 401 on unauthenticated GET operation')
-    
+
     auth_url = json.loads(str(body, 'utf-8')).get('authenticateUrl')
     if not auth_url:
         raise Exception('❌ No authentication URL in 401 response')
     
+    auth_url = urljoin(list_account_url, auth_url)
     auth_url = urljoin(list_account_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
     auth_response = json.loads(auth_body)
@@ -209,8 +210,10 @@ def get_arpio_token(username, password):
         raise Exception(f'❌ Native ACS login failed: {body.decode()}')
 
     token = get_cookie_value(ARPIO_TOKEN_COOKIE)
+
     if not token:
         raise Exception('❌ Failed to retrieve Arpio session token')
+    
     return token
 
 def get_assumed_session(boto_session, environment, role):
