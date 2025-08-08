@@ -107,13 +107,13 @@ def get_cookie_value(name):
 # Helper Functions
 def check_email(email):
 
-    regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
+    regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,7}\b'
     # pass the regular expression
     # and the string into the fullmatch() method
-    if(re.fullmatch(regex, email)):
+    if re.fullmatch(regex, email):
         return False
     else:
-        print("It seems as if that is an invalid email, please check your username and try again")
+        print("Invalid email address format.")
         return True
 
 def build_arpio_url(*path_bits):
@@ -157,14 +157,17 @@ def add_aws_account_id(account_id, aws_account_id, arpio_auth_header=dict):
         }
     body, code, _ = http_get(url, headers=arpio_auth_header)
     if aws_account_id in body.decode():
-        raise Exception(f'AWS account already added to Arpio')
+        print(f'AWS account already added to Arpio')
+        return
 
     body, code, _ = http_post(url, data= payload, headers=(arpio_auth_header | {'Content-Type': 'application/json'}))
     #Ignoring 409 as we return that for when an account already exists and the script should continue on to other applications if one fails.
-    if code not in {200,201,204,409}:
-        raise Exception(f'❌ Failed to add aws account: {body.decode()} : Error: {code}')
     if code == 409:
-        raise Exception(f'AWS account already added to Arpio')
+        print(f'AWS account already added to Arpio')
+        return
+    if code not in {200,201,204}:
+        raise Exception(f'❌ Failed to add aws account: {body.decode()} : Error: {code}')
+
 
 
 # Application Functions
@@ -383,7 +386,7 @@ if __name__ == '__main__':
     parser.add_argument('--csv', help='Path to input CSV file')
     parser.add_argument('-a', '--arpio_account', help='Arpio Account ID', required=True)
     parser.add_argument('-auth', '--auth_type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
-                        API keys may be stored as an environmental variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
+                        API keys may be stored as an environment variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
                         If using Token authentication, provide the username and password arguments to the script. \
                         Both username and password can be stored as environmental \
                         variables under \"ARPIO_USERNAME\" and \"ARPIO_PASSWORD\"',
@@ -397,12 +400,6 @@ if __name__ == '__main__':
     print(f'Arpio Environment: [{ARPIO_API_ROOT}]')
 
     arpio_account = args.arpio_account or input(f'Arpio account ID [{DEFAULT_ARPIO_ACCOUNT}]: ') or DEFAULT_ARPIO_ACCOUNT
-    username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
-    if check_email(username):
-        sys.exit(1)
-    password = (args.password or os.getenv("ARPIO_PASSWORD")) or getpass.getpass('Arpio password: ')
-
-
 
     if args.auth_type == 'api' and args.api_key is None:
         parser.error('--auth_type api requires --api_key to be set')
@@ -413,6 +410,10 @@ if __name__ == '__main__':
         arpio_auth_header = {'X-Api-Key': api_key}
     elif args.auth_type == 'token':
         try:
+            username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
+            if check_email(username):
+                sys.exit(1)
+            password = (args.password or os.getenv("ARPIO_PASSWORD")) or getpass.getpass('Arpio password: ')
             token = get_arpio_token(username, password)
             arpio_auth_header = {ARPIO_TOKEN_COOKIE: token}
         except Exception as e:
