@@ -16,10 +16,12 @@
 
 # Usage
 # Invoke the script, with the required command line argument of the CSV location, and 
-# optional command line arguments for the Arpio Account ID, Arpio Username, and Arpio Password.
-# The Arpio password can be provided via an environmental variable named ARPIO_PASSWORD, as well.
+# optional command line arguments for the Arpio Account ID, and either Arpio API key or Arpio Username/Password.
+# If you use an SSO portal for login, it is recommended to use the API Key instead of token authorization
+# The Arpio API can be provided via an environmental variable named ARPIO_API_KEY.
+# The Arpio password can be provided via an environmental variable named ARPIO_PASSWORD.
 #
-# If the Arpio Account ID, Arpio Username, and Arpio Password aren't provided in the command line,
+# If the Arpio Account ID, and either Arpio API key or Arpio Username/Password aren't provided in the command line,
 # when prompted, enter the following parameters:
 #
 # 1. Arpio Account ID (Navigate to Settings > Account in the Arpio console 
