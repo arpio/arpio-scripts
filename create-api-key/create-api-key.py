@@ -26,13 +26,13 @@ def cli(account_id: str, email: str, password: str, api_hostname: str):
     """
     # The account is a protected resource that requires authentication.
     account_uri = f'https://{api_hostname}/api/accounts/{account_id}'
-
+    auth_flow_uri = f'https://{api_hostname}/api/accounts'
     http = urllib3.PoolManager()
 
     # Try to access the protected resource
 
-    print(f'GET  {account_uri}')
-    resp = http.request('GET', account_uri)
+    print(f'GET  {auth_flow_uri}')
+    resp = http.request('GET', auth_flow_uri)
     if resp.status != 401:
         raise SessionError(f'Expected 401 on protected resource GET, but got {resp.status}')
 
@@ -45,7 +45,7 @@ def cli(account_id: str, email: str, password: str, api_hostname: str):
 
     # Make it absolute
 
-    authenticate_url = urljoin(account_uri, authenticate_url)
+    authenticate_url = urljoin(auth_flow_uri, authenticate_url)
     authenticate_url_parts = urlsplit(authenticate_url)
 
     # Start the authentication flow
