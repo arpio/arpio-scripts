@@ -81,6 +81,7 @@ STACK_NAME = 'ArpioAccess'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
 NONE_ROLE = None
 DEFAULT_TAG_RULE = "arpio-protected=true"
+os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
 
 
 # HTTP helper functions
@@ -223,7 +224,8 @@ def get_arpio_token(username, password):
 
 def get_assumed_session(boto_session, environment, role):
     region_name = environment[1]
-    sts = boto_session.client('sts') #removed region-name for opt-in regions 
+    sts = boto_session.client('sts', region_name=region_name) #If using opt-in regions, must have AWS_STS_REGIONAL_ENDPOINTS= 'regional' set
+    print(f'ID: {sts.get_caller_identity()}')
     role_arn = f'arn:aws:iam::{environment[0]}:role/{role}'
     assumed = sts.assume_role(RoleArn=role_arn, RoleSessionName='arpio_provisioning')
     assumed_session = Session(
@@ -231,6 +233,7 @@ def get_assumed_session(boto_session, environment, role):
         aws_secret_access_key=assumed['Credentials']['SecretAccessKey'],
         aws_session_token=assumed['Credentials']['SessionToken'],
         region_name=region_name
+
     )
     assumed_sts = assumed_session.client('sts')
     caller = assumed_sts.get_caller_identity()

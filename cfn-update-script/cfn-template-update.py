@@ -36,6 +36,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
 DEFAULT_IAM_ROLE = 'OrganizationAccountAccessRole'
+os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
 
 
 # ----------- Multi-threaded printing capability ----------
@@ -220,7 +221,7 @@ def get_access_templates(arpio_account, sync_pair:SyncPair, token):
 
 def get_assumed_session(boto_session, environment, role):
     region_name = environment[1]
-    sts = boto_session.client('sts', region_name=region_name)
+    sts = boto_session.client('sts')
     role_arn = f'arn:aws:iam::{environment[0]}:role/{role}'
     assumed = sts.assume_role(RoleArn=role_arn, RoleSessionName='arpio_provisioning')
     return Session(
