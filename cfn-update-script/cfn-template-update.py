@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from getpass import getpass
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit, parse_qs, urljoin
-from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor
+from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor, ProxyHandler, getproxies
 from http.cookiejar import CookieJar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -38,6 +38,13 @@ ARPIO_TOKEN_COOKIE = 'ArpioSession'
 DEFAULT_IAM_ROLE = 'OrganizationAccountAccessRole'
 os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
 
+# ----------- Boto3 import check ----------   
+try:
+    from boto3.session import Session 
+    from botocore.exceptions import ClientError     
+except ImportError:
+    safe_print('The "boto3" package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.')
+    exit(1)
 
 # ----------- Multi-threaded printing capability ----------
 ### Thread-safe print function that prevents output from interleaving.
@@ -58,20 +65,16 @@ def check_version():
     if (version_info[0], version_info[1]) < (expect_major, expect_minor):
         print("Current Python version is older than expected: Python " + current_version)
 
-# ----------- Boto3 import check ----------   
-try:
-    from boto3.session import Session 
-    from botocore.exceptions import ClientError     
-except ImportError:
-    safe_print('The "boto3" package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.')
-    exit(1)
-
-
-
 # ---------- HTTP Utilities with urllib ----------
 check_version()
+
+# Check for proxies
+proxies = getproxies()
+proxy_handler = ProxyHandler(proxies)
+
+# Setup cookie jar and opener
 cookie_jar = CookieJar()
-opener = build_opener(HTTPCookieProcessor(cookie_jar))
+opener = build_opener(HTTPCookieProcessor(cookie_jar), proxy_handler)
 
 #dataclass containing the 
 @dataclass(frozen=True)

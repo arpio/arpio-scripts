@@ -47,10 +47,21 @@ import threading
 import argparse
 import re
 from urllib.parse import urlsplit, parse_qs, urljoin
-from urllib.request import Request, build_opener, HTTPCookieProcessor
+from urllib.request import Request, build_opener, HTTPCookieProcessor, ProxyHandler, getproxies
 from urllib.error import HTTPError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http import cookiejar
+
+# Declare globals
+ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
+DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
+DEFAULT_ARPIO_USER = 'arpio-user-email'
+DEFAULT_NOTIFICATION_ADDRESS = 'Email'
+STACK_NAME = 'ArpioAccess'
+ARPIO_TOKEN_COOKIE = 'ArpioSession'
+NONE_ROLE = None
+DEFAULT_TAG_RULE = "arpio-protected=true"
+os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
 
 # ----------- Boto3 import check ----------   
 try:
@@ -67,21 +78,14 @@ _print_lock = threading.Lock()
 def safe_print(*args, **kwargs):
     with _print_lock:
         print(*args, **kwargs)
-    
+
+# Check for proxies
+proxies = getproxies()
+proxy_handler = ProxyHandler(proxies)
+
 # Setup cookie jar and opener
 cookie_jar = cookiejar.CookieJar()
-opener = build_opener(HTTPCookieProcessor(cookie_jar))
-
-# Declare globals
-ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
-DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
-DEFAULT_ARPIO_USER = 'arpio-user-email'
-DEFAULT_NOTIFICATION_ADDRESS = 'Email'
-STACK_NAME = 'ArpioAccess'
-ARPIO_TOKEN_COOKIE = 'ArpioSession'
-NONE_ROLE = None
-DEFAULT_TAG_RULE = "arpio-protected=true"
-os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
+opener = build_opener(HTTPCookieProcessor(cookie_jar), proxy_handler)
 
 
 # HTTP helper functions
