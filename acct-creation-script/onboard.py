@@ -232,11 +232,11 @@ def get_assumed_session(environment, role):
     sts = boto_session.client('sts', region_name=region_name) #If using opt-in regions, must have AWS_STS_REGIONAL_ENDPOINTS= 'regional' set
     aws_account = environment[0]
     role_arn = f'arn:aws:iam::{aws_account}:role/{role}'
-    assumed = dict(sts.assume_role(RoleArn=role_arn, RoleSessionName='arpio_provisioning'))
+    assumed = sts.assume_role(RoleArn=role_arn, RoleSessionName='arpio_provisioning')
     assumed_session = Session(
-        aws_access_key_id=str(assumed['Credentials']['AccessKeyId']),
-        aws_secret_access_key=str(assumed['Credentials']['SecretAccessKey']),
-        aws_session_token=str(assumed['Credentials']['SessionToken']),
+        aws_access_key_id=assumed['Credentials']['AccessKeyId'],
+        aws_secret_access_key=assumed['Credentials']['SecretAccessKey'],
+        aws_session_token=assumed['Credentials']['SessionToken'],
         region_name=region_name
 
     )
@@ -247,7 +247,7 @@ def get_assumed_session(environment, role):
 def get_access_templates(arpio_account, prod, recovery, arpio_auth_header):
     url = build_arpio_url('accounts', arpio_account, 'syncPairs',
                           prod[0], prod[1], recovery[0], recovery[1], 'accessTemplates')
-    body, code, _ = http_get(url, headers=dict(arpio_auth_header))
+    body, code, _ = http_get(url, headers=arpio_auth_header)
     if code != 200:
         raise Exception(f'❌ Failed to get access templates: {body.decode()}')
     templates = json.loads(body)
@@ -433,7 +433,9 @@ if __name__ == '__main__':
 
     if args.auth_type == 'api':
         api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
-        arpio_auth_header = {'X-Api-Key': api_key}
+        print(api_key)
+        arpio_auth_header = {'X-Api-Key':api_key}
+        print(arpio_auth_header)
     elif args.auth_type == 'token':
         try:
             username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
