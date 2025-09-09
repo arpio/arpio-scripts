@@ -433,9 +433,7 @@ if __name__ == '__main__':
 
     if args.auth_type == 'api':
         api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
-        print(api_key)
         arpio_auth_header = {'X-Api-Key':api_key}
-        print(arpio_auth_header)
     elif args.auth_type == 'token':
         try:
             username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
