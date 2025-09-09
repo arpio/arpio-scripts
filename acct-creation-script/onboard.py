@@ -230,13 +230,13 @@ def get_assumed_session(environment, role):
     region_name = environment[1]
     boto_session = Session(region_name=region_name)
     sts = boto_session.client('sts', region_name=region_name) #If using opt-in regions, must have AWS_STS_REGIONAL_ENDPOINTS= 'regional' set
-    print(f'ID: {sts.get_caller_identity()}')
-    role_arn = f'arn:aws:iam::{environment[0]}:role/{role}'
-    assumed = sts.assume_role(RoleArn=role_arn, RoleSessionName='arpio_provisioning')
+    aws_account = environment[0]
+    role_arn = f'arn:aws:iam::{aws_account}:role/{role}'
+    assumed = dict(sts.assume_role(RoleArn=role_arn, RoleSessionName='arpio_provisioning'))
     assumed_session = Session(
-        aws_access_key_id=assumed['Credentials']['AccessKeyId'],
-        aws_secret_access_key=assumed['Credentials']['SecretAccessKey'],
-        aws_session_token=assumed['Credentials']['SessionToken'],
+        aws_access_key_id=str(assumed['Credentials']['AccessKeyId']),
+        aws_secret_access_key=str(assumed['Credentials']['SecretAccessKey']),
+        aws_session_token=str(assumed['Credentials']['SessionToken']),
         region_name=region_name
 
     )
@@ -247,7 +247,7 @@ def get_assumed_session(environment, role):
 def get_access_templates(arpio_account, prod, recovery, arpio_auth_header):
     url = build_arpio_url('accounts', arpio_account, 'syncPairs',
                           prod[0], prod[1], recovery[0], recovery[1], 'accessTemplates')
-    body, code, _ = http_get(url, headers={arpio_auth_header})
+    body, code, _ = http_get(url, headers=dict(arpio_auth_header))
     if code != 200:
         raise Exception(f'❌ Failed to get access templates: {body.decode()}')
     templates = json.loads(body)
@@ -379,11 +379,28 @@ def access_template_provisioning(row, arpio_account, arpio_auth_header):
         with ThreadPoolExecutor() as executor:
             src_future = executor.submit(install_access_template, primary_session, primary_environment[0], primary_environment[1], src_template, primary_stack_name)
             tgt_future = executor.submit(install_access_template, recovery_session, recovery_environment[0], recovery_environment[1], tgt_template, recovery_stack_name)
+            
             try:
                 src_future.result()
-                tgt_future.result()
+
             except Exception as e:
-                print(f"❌ Error installing access template for application {row.get('application_name')}: {e}")
+                error = str(e)
+                if "ValidationError" in error and "No updates are to be performed" in error:
+                    print(f"Stack {primary_environment} is already up to date - no changes needed")
+                else:
+                    print(f"An unexpected error occurred: {error}")
+                    raise Exception(f"❌ Error installing access template for application {row.get('application_name')}: {e}")
+
+            try:
+                tgt_future.result()
+
+            except Exception as e:
+                error = str(e)
+                if "ValidationError" in error and "No updates are to be performed" in error:
+                    print(f"Stack {recovery_environment} is already up to date - no changes needed")
+                else:
+                    print(f"An unexpected error occurred: {error}")
+                    raise Exception(f"❌ Error installing access template for application {row.get('application_name')}: {e}")
 
     except Exception as e:
         print(f"❌ Error in provisioning: {e}")

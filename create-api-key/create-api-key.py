@@ -3,9 +3,7 @@
 # Creates an API key in an Arpio account and prints an example of using it.
 import json
 import sys
-import os
-from urllib.parse import urlsplit, parse_qs, urljoin, urlparse
-from urllib import request
+from urllib.parse import urlsplit, parse_qs, urljoin
 
 import click
 import urllib3
@@ -14,66 +12,6 @@ import urllib3
 class SessionError(Exception):
     pass
 
-def getproxies():
-    """Return a dictionary of scheme -> proxy server URL mappings.
-
-    Scan the environment for variables named <scheme>_proxy;
-    this seems to be the standard convention.
-    """
-    # in order to prefer lowercase variables, process environment in
-    # two passes: first matches any, second pass matches lowercase only
-
-    # select only environment variables which end in (after making lowercase) _proxy
-    proxies = {}
-    environment = []
-    for name in os.environ:
-        # fast screen underscore position before more expensive case-folding
-        if len(name) > 5 and name[-6] == "_" and name[-5:].lower() == "proxy":
-            value = os.environ[name]
-            proxy_name = name[:-6].lower()
-            environment.append((name, value, proxy_name))
-            if value:
-                proxies[proxy_name] = value
-    # CVE-2016-1000110 - If we are running as CGI script, forget HTTP_PROXY
-    # (non-all-lowercase) as it may be set from the web server by a "Proxy:"
-    # header from the client
-    # If "proxy" is lowercase, it will still be used thanks to the next block
-    if 'REQUEST_METHOD' in os.environ:
-        proxies.pop('http', None)
-    for name, value, proxy_name in environment:
-        # not case-folded, checking here for lower-case env vars only
-        if name[-6:] == '_proxy':
-            if value:
-                proxies[proxy_name] = value
-            else:
-                proxies.pop(proxy_name, None)
-    return proxies
-
-def get_pool_manager(url):
-    proxies = request.getproxies()
-    bypass_proxy = request.proxy_bypass(urlparse(url).hostname)
-
-    if 'https' in proxies and not bypass_proxy:
-        proxy = urlparse(proxies['https'])
-
-        if proxy.username and proxy.password:
-            proxy_headers = urllib3.util.make_headers(proxy_basic_auth='{0}:{1}'.format(proxy.username, proxy.password))
-        else:
-            proxy_headers = None
-
-        http = urllib3.ProxyManager(proxy.geturl(), proxy_headers=proxy_headers)
-    elif 'http' in proxies and not bypass_proxy:
-        proxy = urlparse(proxies['http'])
-
-        if proxy.username and proxy.password:
-            proxy_headers = urllib3.util.make_headers(proxy_basic_auth='{0}:{1}'.format(proxy.username, proxy.password))
-        else:
-            proxy_headers = None
-
-        http = urllib3.ProxyManager(proxy.geturl(), proxy_headers=proxy_headers)
-    else:
-        http = urllib3.PoolManager()
-    return http
 
 @click.command()
 @click.argument('account-id')
@@ -89,7 +27,7 @@ def cli(account_id: str, email: str, password: str, api_hostname: str):
     # The account is a protected resource that requires authentication.
     account_uri = f'https://{api_hostname}/api/accounts/{account_id}'
     auth_flow_uri = f'https://{api_hostname}/api/accounts'
-    http = http()
+    http = urllib3.PoolManager()
 
     # Try to access the protected resource
 
