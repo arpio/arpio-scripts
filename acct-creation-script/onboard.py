@@ -47,7 +47,7 @@ import threading
 import argparse
 import re
 from urllib.parse import urlsplit, parse_qs, urljoin
-from urllib.request import Request, build_opener, HTTPCookieProcessor, ProxyHandler, getproxies
+from urllib.request import Request, build_opener, HTTPCookieProcessor, HTTPHandler, HTTPSHandler, ProxyHandler, getproxies
 from urllib.error import HTTPError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http import cookiejar
@@ -79,13 +79,30 @@ def safe_print(*args, **kwargs):
     with _print_lock:
         print(*args, **kwargs)
 
-# Check for proxies
-proxies = getproxies()
-proxy_handler = ProxyHandler(proxies)
+# Setup handlers for build_opener
+proxies =   {
+            'http_proxy': os.getenv('http_proxy') or os.getenv('HTTP_PROXY'),
+            'https_proxy': os.getenv('https_proxy') or os.getenv('HTTPS_PROXY'),
+            'ftp_proxy': os.getenv('ftp_proxy') or os.getenv('FTP_PROXY'),
+            'no_proxy': os.getenv('no_proxy') or os.getenv('NO_PROXY')
+            }
 
-# Setup cookie jar and opener
+proxy_handler = ProxyHandler(proxies)
 cookie_jar = cookiejar.CookieJar()
-opener = build_opener(HTTPCookieProcessor(cookie_jar), proxy_handler)
+
+# Add debugging handler for visibility
+http_handler = HTTPHandler(debuglevel=1)
+https_handler = HTTPSHandler(debuglevel=1)
+
+# Create Opener
+opener = build_opener(
+    proxy_handler, 
+    cookie_jar,
+    http_handler,
+    https_handler
+)
+if proxies:
+    opener = build_opener(HTTPCookieProcessor(cookie_jar), proxy_handler)
 
 
 # HTTP helper functions
