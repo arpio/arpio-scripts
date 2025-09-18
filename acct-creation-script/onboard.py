@@ -93,16 +93,15 @@ cookie_jar = cookiejar.CookieJar()
 # Add debugging handler for visibility
 http_handler = HTTPHandler(debuglevel=1)
 https_handler = HTTPSHandler(debuglevel=1)
-
+cookie_handler = HTTPCookieProcessor(cookie_jar)
 # Create Opener
 opener = build_opener(
     proxy_handler, 
-    cookie_jar,
+    cookie_handler,
     http_handler,
     https_handler
 )
-if proxies:
-    opener = build_opener(HTTPCookieProcessor(cookie_jar), proxy_handler)
+
 
 
 # HTTP helper functions
