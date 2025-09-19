@@ -47,7 +47,7 @@ import threading
 import argparse
 import re
 from urllib.parse import urlsplit, parse_qs, urljoin
-from urllib.request import Request, build_opener, HTTPCookieProcessor, HTTPHandler, HTTPSHandler, ProxyHandler, getproxies
+from urllib.request import Request, build_opener, HTTPCookieProcessor, HTTPHandler, HTTPSHandler, ProxyHandler, install_opener
 from urllib.error import HTTPError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http import cookiejar
@@ -79,15 +79,53 @@ def safe_print(*args, **kwargs):
     with _print_lock:
         print(*args, **kwargs)
 
-# Setup handlers for build_opener
-proxies =   {
-            'http_proxy': os.getenv('http_proxy') or os.getenv('HTTP_PROXY'),
-            'https_proxy': os.getenv('https_proxy') or os.getenv('HTTPS_PROXY'),
-            'ftp_proxy': os.getenv('ftp_proxy') or os.getenv('FTP_PROXY'),
-            'no_proxy': os.getenv('no_proxy') or os.getenv('NO_PROXY')
-            }
+def get_proxy_dict():
+    """
+    Capture proxy environment variables and return them as a dictionary
+    suitable for urllib proxy handlers.
+    """
+    proxy_vars = {}
+    
+    # Common proxy environment variable names
+    proxy_keys = [
+        'http_proxy', 'HTTP_PROXY',
+        'https_proxy', 'HTTPS_PROXY', 
+        'ftp_proxy', 'FTP_PROXY',
+        'socks_proxy', 'SOCKS_PROXY',
+        'no_proxy', 'NO_PROXY'
+    ]
+    
+    # Collect all proxy-related environment variables
+    for key in proxy_keys:
+        value = os.environ.get(key)
+        if value:
+            # Normalize key to lowercase for urllib
+            normalized_key = key.lower()
+            proxy_vars[normalized_key] = value
+    
+    return proxy_vars
 
-proxy_handler = ProxyHandler(proxies)
+def create_proxy_handler():
+    """
+    Create a urllib proxy handler using environment variables.
+    """
+    # Get proxy configuration from environment
+    proxy_dict = get_proxy_dict()
+    
+    # Remove 'no_proxy' from the dict as it's handled separately
+    no_proxy = proxy_dict.pop('no_proxy', None)
+    
+    if proxy_dict:
+        # Create ProxyHandler with the proxy dictionary
+        proxy_handler = ProxyHandler(proxy_dict)
+    else:
+        # No proxy configuration found, use default handler
+        proxy_handler = ProxyHandler({})
+        print("No proxy environment variables found, using direct connection")
+    
+    return proxy_handler
+
+proxy_handler = create_proxy_handler()
 cookie_jar = cookiejar.CookieJar()
 
 # Add debugging handler for visibility
@@ -101,7 +139,7 @@ opener = build_opener(
     http_handler,
     https_handler
 )
-
+install_opener(opener)
 
 
 # HTTP helper functions
