@@ -1,4 +1,4 @@
 *.iml
 
 .DS_Store
-acct-creation-script/test.csv
+acct-creation-script/test*.csv

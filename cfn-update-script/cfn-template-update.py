@@ -34,7 +34,7 @@ from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor, 
 from http import cookiejar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio-dev.io/api'
+ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
 DEFAULT_IAM_ROLE = 'OrganizationAccountAccessRole'
 DEFAULT_ARPIO_USER = 'arpio-user-email'
@@ -73,7 +73,7 @@ def check_version():
 check_version()
 
 # ---------- HTTP Utilities with urllib ----------
-def get_proxy_dict():
+def get_proxy_dict() -> dict[str, str]:
     """
     Capture proxy environment variables and return them as a dictionary
     suitable for urllib proxy handlers.
@@ -99,7 +99,7 @@ def get_proxy_dict():
     
     return proxy_vars
 
-def create_proxy_handler():
+def create_proxy_handler() -> ProxyHandler:
     """
     Create a urllib proxy handler using environment variables.
     """
@@ -221,7 +221,7 @@ def get_arpio_token(account_id, username, password):
     query_params = parse_qs(urlsplit(web_login_url).query)
     auth_token = query_params.get('authToken', [None])[0]
     if not auth_token:
-        raise Exception(f'No auth in URL: {web_login_url}')
+        raise Exception(f'No authToken in URL: {web_login_url}')
 
     login_url = f'{urlsplit(auth_url).scheme}://{urlsplit(auth_url).netloc}/api/users/login'
     body, code, _ = http_post(login_url, {'email': username, 'password': password})

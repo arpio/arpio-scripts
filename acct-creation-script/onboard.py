@@ -82,7 +82,7 @@ def safe_print(*args, **kwargs):
     with _print_lock:
         print(*args, **kwargs)
 
-def get_proxy_dict():
+def get_proxy_dict() -> dict[str, str]:
     """
     Capture proxy environment variables and return them as a dictionary
     suitable for urllib proxy handlers.
@@ -108,7 +108,7 @@ def get_proxy_dict():
     
     return proxy_vars
 
-def create_proxy_handler():
+def create_proxy_handler() -> ProxyHandler:
     """
     Create a urllib proxy handler using environment variables.
     """
@@ -351,6 +351,8 @@ def install_access_template(session, aws_account, region, template_url, stack_na
             break
         elif status in failed_status:
             raise Exception(f'❌ Failed to install template in AWS: {aws_account}/{region}: {status}')
+        else:
+            raise Exception(f'Unknown AWS Cloudformation Status response. Status: {status}')
             
 def create_application_call(arpio_account, prod, recovery, emails, arpio_auth_header, application_name, selection_rules, rpo):
     application_url = build_arpio_url('accounts', arpio_account, 'applications')
