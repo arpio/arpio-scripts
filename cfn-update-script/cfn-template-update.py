@@ -73,72 +73,35 @@ def check_version():
 check_version()
 
 # ---------- HTTP Utilities with urllib ----------
-def get_proxy_dict() -> dict[str, str]:
-    """
-    Capture proxy environment variables and return them as a dictionary
-    suitable for urllib proxy handlers.
-    """
-    proxy_vars = {}
-    
-    # Common proxy environment variable names
-    proxy_keys = [
-        'http_proxy', 'HTTP_PROXY',
-        'https_proxy', 'HTTPS_PROXY', 
-        'ftp_proxy', 'FTP_PROXY',
-        'socks_proxy', 'SOCKS_PROXY',
-        'no_proxy', 'NO_PROXY'
-    ]
-    
-    # Collect all proxy-related environment variables
-    for key in proxy_keys:
-        value = os.environ.get(key)
-        if value:
-            # Normalize key to lowercase for urllib
-            normalized_key = key.lower()
-            proxy_vars[normalized_key] = value
-    
-    return proxy_vars
 
-def create_proxy_handler() -> ProxyHandler:
-    """
-    Create a urllib proxy handler using environment variables.
-    """
-    # Get proxy configuration from environment
-    proxy_dict = get_proxy_dict()
-    
-    # Remove 'no_proxy' from the dict as it's handled separately
-    proxy_dict.pop('no_proxy', None)
-    
-    if proxy_dict:
-        # Create ProxyHandler with the proxy dictionary
-        proxy_handler = ProxyHandler(proxy_dict)
-        print(f'Proxy environment detected, using {proxy_dict}')
-    else:
-        # No proxy configuration found, use default handler
-        proxy_handler = ProxyHandler({})
-        print(f'No proxy environment variables found, using direct connection')
-    
-    return proxy_handler
-
-def setup_handler(debug_network):
+def setup_handler(debug_network, proxy):
     global opener
     global cookie_jar
-    proxy_handler = create_proxy_handler()
+
+    http_handler = HTTPHandler(debuglevel=1)
+    https_handler = HTTPSHandler(debuglevel=1)
    
-    # Add debugging handler for visibility
-    if debug_network:
-        http_handler = HTTPHandler(debuglevel=1)
-        https_handler = HTTPSHandler(debuglevel=1)
+    if proxy and debug_network:
         opener = build_opener(
-            proxy_handler,
+            ProxyHandler(),
+            cookie_handler,
             http_handler, 
-            https_handler,
-            cookie_handler
+            https_handler
+        ) 
+    elif debug_network:
+        opener = build_opener(
+            cookie_handler,
+            http_handler, 
+            https_handler
         ) 
     # Create Opener
+    elif proxy:
+        opener = build_opener(
+            ProxyHandler(),
+            cookie_handler
+        )
     else:
         opener = build_opener(
-            proxy_handler,
             cookie_handler
         )
     install_opener(opener)
@@ -374,10 +337,11 @@ def main():
                         help=f'Role name to assume in each AWS account (default: {DEFAULT_IAM_ROLE})')
     parser.add_argument('--max-workers', '-w', type=int, default=20,
                         help='Max number of sync pairs to update in parallel (default: 20)')
+    parser.add_argument('-p', '--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environmental variables for autodetection to work.', action='store_true', default=False)
     parser.add_argument('-dn', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging', action='store_true', default=False)
     args = parser.parse_args()
 
-    setup_handler(args.debug_network)
+    setup_handler(args.debug_network, args.proxy)
 
 
     print('🛠 Arpio CloudFormation Access Template Updater\n')
