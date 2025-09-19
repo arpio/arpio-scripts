@@ -47,7 +47,7 @@ import threading
 import argparse
 import re
 from urllib.parse import urlsplit, parse_qs, urljoin
-from urllib.request import Request, build_opener, HTTPCookieProcessor, ProxyHandler, getproxies
+from urllib.request import Request, build_opener, HTTPCookieProcessor, HTTPHandler, HTTPSHandler, ProxyHandler, install_opener
 from urllib.error import HTTPError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http import cookiejar
@@ -62,6 +62,9 @@ ARPIO_TOKEN_COOKIE = 'ArpioSession'
 NONE_ROLE = None
 DEFAULT_TAG_RULE = "arpio-protected=true"
 os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
+opener = build_opener()
+cookie_jar = cookiejar.CookieJar()
+cookie_handler = HTTPCookieProcessor(cookie_jar)
 
 # ----------- Boto3 import check ----------   
 try:
@@ -79,13 +82,76 @@ def safe_print(*args, **kwargs):
     with _print_lock:
         print(*args, **kwargs)
 
-# Check for proxies
-proxies = getproxies()
-proxy_handler = ProxyHandler(proxies)
+def get_proxy_dict() -> dict[str, str]:
+    """
+    Capture proxy environment variables and return them as a dictionary
+    suitable for urllib proxy handlers.
+    """
+    proxy_vars = {}
+    
+    # Common proxy environment variable names
+    proxy_keys = [
+        'http_proxy', 'HTTP_PROXY',
+        'https_proxy', 'HTTPS_PROXY', 
+        'ftp_proxy', 'FTP_PROXY',
+        'socks_proxy', 'SOCKS_PROXY',
+        'no_proxy', 'NO_PROXY'
+    ]
+    
+    # Collect all proxy-related environment variables
+    for key in proxy_keys:
+        value = os.environ.get(key)
+        if value:
+            # Normalize key to lowercase for urllib
+            normalized_key = key.lower()
+            proxy_vars[normalized_key] = value
+    
+    return proxy_vars
 
-# Setup cookie jar and opener
-cookie_jar = cookiejar.CookieJar()
-opener = build_opener(HTTPCookieProcessor(cookie_jar), proxy_handler)
+def create_proxy_handler() -> ProxyHandler:
+    """
+    Create a urllib proxy handler using environment variables.
+    """
+    # Get proxy configuration from environment
+    proxy_dict = get_proxy_dict()
+    
+    # Remove 'no_proxy' from the dict as it's handled separately
+    proxy_dict.pop('no_proxy', None)
+    
+    if proxy_dict:
+        # Create ProxyHandler with the proxy dictionary
+        proxy_handler = ProxyHandler(proxy_dict)
+        print(f'Proxy environment detected, using {proxy_dict}')
+    else:
+        # No proxy configuration found, use default handler
+        proxy_handler = ProxyHandler({})
+        print(f'No proxy environment variables found, using direct connection')
+    
+    return proxy_handler
+
+def setup_handler(debug_network):
+    global opener
+    global cookie_jar
+    proxy_handler = create_proxy_handler()
+   
+    # Add debugging handler for visibility
+    if debug_network:
+        http_handler = HTTPHandler(debuglevel=1)
+        https_handler = HTTPSHandler(debuglevel=1)
+        opener = build_opener(
+            proxy_handler,
+            http_handler, 
+            https_handler,
+            cookie_handler
+        ) 
+    # Create Opener
+    else:
+        opener = build_opener(
+            proxy_handler,
+            cookie_handler
+        )
+    install_opener(opener)
+    return
 
 
 # HTTP helper functions
@@ -156,7 +222,7 @@ def parse_tag_rules(tag_string:str) -> list[dict]:
     
     return tag_rules
 
-def add_aws_account_id(account_id, aws_account_id, arpio_auth_header=dict):
+def add_aws_account_id(account_id, aws_account_id, arpio_auth_header):
     url = build_arpio_url(f'accounts/{account_id}/awsAccounts')
     payload = {
         'awsAccountId': aws_account_id,
@@ -188,7 +254,6 @@ def get_arpio_token(username, password):
     if not auth_url:
         raise Exception('❌ No authentication URL in 401 response')
     
-    auth_url = urljoin(list_account_url, auth_url)
     auth_url = urljoin(list_account_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
     auth_response = json.loads(auth_body)
@@ -282,10 +347,12 @@ def install_access_template(session, aws_account, region, template_url, stack_na
                          'UPDATE_ROLLBACK_FAILED', 'UPDATE_ROLLBACK_COMPLETE'}
         success_status = {'CREATE_COMPLETE', 'UPDATE_COMPLETE'}
         if status in success_status:
-            safe_print(f'✅ Updated template in AWS: {aws_account}/{region}') 
+            safe_print(f'✅ Updated template in AWS: {aws_account}/{session.region_name}') 
             break
         elif status in failed_status:
             raise Exception(f'❌ Failed to install template in AWS: {aws_account}/{region}: {status}')
+        else:
+            raise Exception(f'Unknown AWS Cloudformation Status response. Status: {status}')
             
 def create_application_call(arpio_account, prod, recovery, emails, arpio_auth_header, application_name, selection_rules, rpo):
     application_url = build_arpio_url('accounts', arpio_account, 'applications')
@@ -410,8 +477,8 @@ def access_template_provisioning(row, arpio_account, arpio_auth_header):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Arpio Onboarding Script')
     parser.add_argument('--csv', help='Path to input CSV file')
-    parser.add_argument('-a', '--arpio_account', help='Arpio Account ID', required=True)
-    parser.add_argument('-auth', '--auth_type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
+    parser.add_argument('-a', '--arpio-account', help='Arpio Account ID', required=True)
+    parser.add_argument('-auth', '--auth-type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
                         API keys may be stored as an environment variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
                         If using Token authentication, provide the username and password arguments to the script. \
                         Both username and password can be stored as environmental \
@@ -419,21 +486,25 @@ if __name__ == '__main__':
                         required=True, choices=['api','token'], default='token')
     parser.add_argument('-u', '--username', help='Arpio Username')
     parser.add_argument('-p', '--password', help='Arpio Password')
-    parser.add_argument('-k', '--api_key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
+    parser.add_argument('-k', '--api-key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
+    parser.add_argument('-dn', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging. Insecure, will log Tokens/Keys for debugging.', action='store_true', default=False)
     args = parser.parse_args()
+
+    setup_handler(args.debug_network)
     
     print("=== Arpio Onboarding Script ===")
     print(f'Arpio Environment: [{ARPIO_API_ROOT}]')
 
     arpio_account = args.arpio_account or input(f'Arpio account ID [{DEFAULT_ARPIO_ACCOUNT}]: ') or DEFAULT_ARPIO_ACCOUNT
 
-    if args.auth_type == 'api' and args.api_key is None:
-        parser.error('--auth_type api requires --api_key to be set')
-        sys.exit(1)
-
     if args.auth_type == 'api':
+        if args.auth_type == 'api' and args.api_key is None and os.environ.get('ARPIO_API_KEY') is None:
+            print('--auth_type api requires --api_key to be set, manually enter API key.')
         api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
-        arpio_auth_header = {'X-Api-Key':api_key}
+        if api_key is None:
+            parser.error('--auth_type api requires an API key')
+            exit(1)
+        arpio_auth_header = {'X-Api-Key' : api_key}
     elif args.auth_type == 'token':
         try:
             username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER

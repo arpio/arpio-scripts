@@ -23,27 +23,32 @@ import json
 import os
 import threading
 import time
+import re 
 from sys import exit, version_info
 from typing import List
 from dataclasses import dataclass
 from getpass import getpass
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit, parse_qs, urljoin
-from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor, ProxyHandler, getproxies
-from http.cookiejar import CookieJar
+from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor, ProxyHandler, HTTPHandler, HTTPSHandler, install_opener
+from http import cookiejar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
 DEFAULT_IAM_ROLE = 'OrganizationAccountAccessRole'
+DEFAULT_ARPIO_USER = 'arpio-user-email'
 os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
+opener = build_opener()
+cookie_jar = cookiejar.CookieJar()
+cookie_handler = HTTPCookieProcessor(cookie_jar)
 
 # ----------- Boto3 import check ----------   
 try:
     from boto3.session import Session 
     from botocore.exceptions import ClientError     
 except ImportError:
-    safe_print('The "boto3" package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.')
+    print('The "boto3" package is not installed. Please install the AWS SDK for Python (Boto3) to continue, or run this script in an environment that has it.')
     exit(1)
 
 # ----------- Multi-threaded printing capability ----------
@@ -65,18 +70,81 @@ def check_version():
     if (version_info[0], version_info[1]) < (expect_major, expect_minor):
         print("Current Python version is older than expected: Python " + current_version)
 
-# ---------- HTTP Utilities with urllib ----------
 check_version()
 
-# Check for proxies
-proxies = getproxies()
-proxy_handler = ProxyHandler(proxies)
+# ---------- HTTP Utilities with urllib ----------
+def get_proxy_dict() -> dict[str, str]:
+    """
+    Capture proxy environment variables and return them as a dictionary
+    suitable for urllib proxy handlers.
+    """
+    proxy_vars = {}
+    
+    # Common proxy environment variable names
+    proxy_keys = [
+        'http_proxy', 'HTTP_PROXY',
+        'https_proxy', 'HTTPS_PROXY', 
+        'ftp_proxy', 'FTP_PROXY',
+        'socks_proxy', 'SOCKS_PROXY',
+        'no_proxy', 'NO_PROXY'
+    ]
+    
+    # Collect all proxy-related environment variables
+    for key in proxy_keys:
+        value = os.environ.get(key)
+        if value:
+            # Normalize key to lowercase for urllib
+            normalized_key = key.lower()
+            proxy_vars[normalized_key] = value
+    
+    return proxy_vars
 
-# Setup cookie jar and opener
-cookie_jar = CookieJar()
-opener = build_opener(HTTPCookieProcessor(cookie_jar), proxy_handler)
+def create_proxy_handler() -> ProxyHandler:
+    """
+    Create a urllib proxy handler using environment variables.
+    """
+    # Get proxy configuration from environment
+    proxy_dict = get_proxy_dict()
+    
+    # Remove 'no_proxy' from the dict as it's handled separately
+    proxy_dict.pop('no_proxy', None)
+    
+    if proxy_dict:
+        # Create ProxyHandler with the proxy dictionary
+        proxy_handler = ProxyHandler(proxy_dict)
+        print(f'Proxy environment detected, using {proxy_dict}')
+    else:
+        # No proxy configuration found, use default handler
+        proxy_handler = ProxyHandler({})
+        print(f'No proxy environment variables found, using direct connection')
+    
+    return proxy_handler
 
-#dataclass containing the 
+def setup_handler(debug_network):
+    global opener
+    global cookie_jar
+    proxy_handler = create_proxy_handler()
+   
+    # Add debugging handler for visibility
+    if debug_network:
+        http_handler = HTTPHandler(debuglevel=1)
+        https_handler = HTTPSHandler(debuglevel=1)
+        opener = build_opener(
+            proxy_handler,
+            http_handler, 
+            https_handler,
+            cookie_handler
+        ) 
+    # Create Opener
+    else:
+        opener = build_opener(
+            proxy_handler,
+            cookie_handler
+        )
+    install_opener(opener)
+    return
+
+# Dataclass containing the template information
 @dataclass(frozen=True)
 class TemplateUpdate:
     aws_id:str
@@ -84,6 +152,7 @@ class TemplateUpdate:
     template:str
     stack:str
 
+# Dataclass containing the Sync Pair information
 @dataclass(frozen=True)
 class SyncPair:
     src_id:str
@@ -111,6 +180,17 @@ def http_post(url, data=None, headers=None):
 
 def get_cookie_value(name):
     return next((cookie.value for cookie in cookie_jar if cookie.name == name), None)
+
+
+def check_email(email):
+    regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,7}\b'
+    # pass the regular expression
+    # and the string into the fullmatch() method
+    if re.fullmatch(regex, email):
+        return False
+    else:
+        print("Invalid email address format.")
+        return True
 
 
 # ---------- Arpio API Functions ----------
@@ -166,9 +246,9 @@ def get_arpio_token(account_id, username, password):
     return token
 
 
-def query_environments(token:str, arpio_account:str)->List[SyncPair]:
+def query_environments(arpio_auth_header, arpio_account:str)->List[SyncPair]:
     url = build_arpio_url('accounts', arpio_account, 'applications')
-    body, code, _ = http_get(url, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
+    body, code, _ = http_get(url, headers=arpio_auth_header)
     if code != 200:
         raise Exception(f'Failed to query applications: {body.decode()}')
     applications = json.loads(body)
@@ -177,10 +257,10 @@ def query_environments(token:str, arpio_account:str)->List[SyncPair]:
                                                        app['targetRegion']) for app in applications]
 
 
-def needs_template_update(token, arpio_account, sync_pair:SyncPair) -> List[TemplateUpdate]:
+def needs_template_update(arpio_auth_header, arpio_account, sync_pair:SyncPair) -> List[TemplateUpdate]:
     url = build_arpio_url('accounts', arpio_account, 'syncPairs',
                           sync_pair.src_id, sync_pair.src_reg, sync_pair.tgt_id, sync_pair.tgt_reg, 'access')
-    body, code, _ = http_get(url, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
+    body, code, _ = http_get(url, headers=arpio_auth_header)
     if code != 200:
         raise Exception(f'Failed to query sync pair: {body.decode()}')
     info = json.loads(body)
@@ -191,7 +271,7 @@ def needs_template_update(token, arpio_account, sync_pair:SyncPair) -> List[Temp
 
     try:
         if source_stack or target_stack:
-            source_template, target_template = get_access_templates(arpio_account, sync_pair, token)
+            source_template, target_template = get_access_templates(arpio_account, sync_pair, arpio_auth_header)
     except Exception as e:
         safe_print(f'❌ Unable to check environment templates:  {sync_pair.src_id}/{sync_pair.src_reg} & {sync_pair.tgt_id}/{sync_pair.tgt_reg} - Exception: {e}')
         return updates
@@ -211,10 +291,10 @@ def needs_template_update(token, arpio_account, sync_pair:SyncPair) -> List[Temp
     return updates
 
 
-def get_access_templates(arpio_account, sync_pair:SyncPair, token):
+def get_access_templates(arpio_account, sync_pair:SyncPair, arpio_auth_header):
     url = build_arpio_url('accounts', arpio_account, 'syncPairs',
                           sync_pair.src_id, sync_pair.src_reg, sync_pair.tgt_id, sync_pair.tgt_reg, 'accessTemplates')
-    body, code, _ = http_get(url, headers={'Cookie': f'{ARPIO_TOKEN_COOKIE}={token}'})
+    body, code, _ = http_get(url, headers=arpio_auth_header)
     if code != 200:
         raise Exception(f'Failed to get access templates: {body.decode()}')
     templates = json.loads(body)
@@ -276,26 +356,57 @@ def update_template(upd:TemplateUpdate,session:Session,role:str) -> None:
 # ---------- Main Program ----------
 
 
-def parse_args():
+
+
+def main():
     parser = argparse.ArgumentParser(description='Update Arpio access templates across AWS sync pairs.')
-    parser.add_argument('--arpio-account', '-a', help='Arpio account ID')
-    parser.add_argument('--username', '-u', help='Arpio username (email)')
-    parser.add_argument('--password', '-p', help='Arpio password')
+    parser.add_argument('-a', '--arpio-account', help='Arpio Account ID', required=True)
+    parser.add_argument('-auth', '--auth-type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
+                        API keys may be stored as an environment variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
+                        If using Token authentication, provide the username and password arguments to the script. \
+                        Both username and password can be stored as environmental \
+                        variables under \"ARPIO_USERNAME\" and \"ARPIO_PASSWORD\"',
+                        required=True, choices=['api','token'], default='token')
+    parser.add_argument('-u', '--username', help='Arpio Username')
+    parser.add_argument('-p', '--password', help='Arpio Password')
+    parser.add_argument('-k', '--api-key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
     parser.add_argument('--role-name', '-r', default=DEFAULT_IAM_ROLE,
                         help=f'Role name to assume in each AWS account (default: {DEFAULT_IAM_ROLE})')
     parser.add_argument('--max-workers', '-w', type=int, default=20,
                         help='Max number of sync pairs to update in parallel (default: 20)')
-    return parser.parse_args()
+    parser.add_argument('-dn', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging', action='store_true', default=False)
+    args = parser.parse_args()
 
+    setup_handler(args.debug_network)
 
-def main():
-    args = parse_args()
 
     print('🛠 Arpio CloudFormation Access Template Updater\n')
     arpio_account = args.arpio_account or input('Arpio Account ID: ').strip()
-    username = args.username or input('Arpio Username (email): ').strip()
-    password = args.password or getpass('Arpio Password: ')
-    
+
+    if args.auth_type == 'api':
+        if args.auth_type == 'api' and args.api_key is None and os.environ.get('ARPIO_API_KEY') is None:
+            print('--auth_type api requires --api_key to be set, manually enter API key.')
+        api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
+        if api_key is None:
+            parser.error('API key not found')
+            exit(1)
+        arpio_auth_header = {'X-Api-Key' : api_key}
+    elif args.auth_type == 'token':
+        try:
+            username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
+            if check_email(username):
+                exit(1)
+            password = (args.password or os.getenv("ARPIO_PASSWORD")) or getpass.getpass('Arpio password: ')
+            token = get_arpio_token(arpio_account, username, password)
+            arpio_auth_header = {ARPIO_TOKEN_COOKIE : token}
+
+        except Exception as e:
+            print(f"{e}")
+            exit(1)
+    else:
+        print(f'Missing arguments for authentication type. Please check your arguments and try again.')    
+        exit(1)    
+
     check_version()
 
     role_name = args.role_name
@@ -303,17 +414,16 @@ def main():
 
     max_workers = args.max_workers
 
-    token = get_arpio_token(arpio_account, username, password)
     session = Session()
 
-    unique_pairs = set(query_environments(token, arpio_account))
+    unique_pairs = set(query_environments(arpio_auth_header, arpio_account))
     template_updates = set()
     
     max_workers = min(max_workers, len(unique_pairs)) ## calculate thread pool for unique syncpairs
     print(f'\n🔍 Found {len(unique_pairs)} unique sync pairs. Starting parallel template update checks with {max_workers} workers...\n')
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(needs_template_update, token, arpio_account, sync_pair) for sync_pair in unique_pairs]
+            futures = [executor.submit(needs_template_update, arpio_auth_header, arpio_account, sync_pair) for sync_pair in unique_pairs]
 
             for f in as_completed(futures):
                 template_updates.update(f.result())
