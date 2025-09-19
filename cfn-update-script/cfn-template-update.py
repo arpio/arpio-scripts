@@ -34,8 +34,8 @@ from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor, 
 from http import cookiejar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
-ARPIO_TOKEN_COOKIE = str('ArpioSession')
+ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio-dev.io/api'
+ARPIO_TOKEN_COOKIE = 'ArpioSession'
 DEFAULT_IAM_ROLE = 'OrganizationAccountAccessRole'
 DEFAULT_ARPIO_USER = 'arpio-user-email'
 os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
@@ -221,7 +221,7 @@ def get_arpio_token(account_id, username, password):
     query_params = parse_qs(urlsplit(web_login_url).query)
     auth_token = query_params.get('authToken', [None])[0]
     if not auth_token:
-        raise Exception(f'No auth  in URL: {web_login_url}')
+        raise Exception(f'No auth in URL: {web_login_url}')
 
     login_url = f'{urlsplit(auth_url).scheme}://{urlsplit(auth_url).netloc}/api/users/login'
     body, code, _ = http_post(login_url, {'email': username, 'password': password})
@@ -360,7 +360,7 @@ def update_template(upd:TemplateUpdate,session:Session,role:str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description='Update Arpio access templates across AWS sync pairs.')
-    parser.add_argument('--arpio-account', '-a', help='Arpio account ID')
+    parser.add_argument('-a', '--arpio_account', help='Arpio Account ID', required=True)
     parser.add_argument('-auth', '--auth_type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
                         API keys may be stored as an environment variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
                         If using Token authentication, provide the username and password arguments to the script. \
@@ -383,14 +383,14 @@ def main():
     print('🛠 Arpio CloudFormation Access Template Updater\n')
     arpio_account = args.arpio_account or input('Arpio Account ID: ').strip()
 
-    if args.auth_type == 'api' and args.api_key is None:
-        parser.error('--auth_type api requires --api_key to be set')
-        exit(1)
-
     if args.auth_type == 'api':
+        if args.auth_type == 'api' and args.api_key is None and os.environ.get('ARPIO_API_KEY') is None:
+            print('--auth_type api requires --api_key to be set, manually enter API key.')
         api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
+        if api_key is None:
+            parser.error('API key not found')
+            exit(1)
         arpio_auth_header = {'X-Api-Key' : api_key}
-
     elif args.auth_type == 'token':
         try:
             username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER

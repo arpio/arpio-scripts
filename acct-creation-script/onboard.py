@@ -255,7 +255,6 @@ def get_arpio_token(username, password):
         raise Exception('❌ No authentication URL in 401 response')
     
     auth_url = urljoin(list_account_url, auth_url)
-    auth_url = urljoin(list_account_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
     auth_response = json.loads(auth_body)
 
@@ -496,13 +495,14 @@ if __name__ == '__main__':
 
     arpio_account = args.arpio_account or input(f'Arpio account ID [{DEFAULT_ARPIO_ACCOUNT}]: ') or DEFAULT_ARPIO_ACCOUNT
 
-    if args.auth_type == 'api' and args.api_key is None:
-        parser.error('--auth_type api requires --api_key to be set')
-        sys.exit(1)
-
     if args.auth_type == 'api':
+        if args.auth_type == 'api' and args.api_key is None and os.environ.get('ARPIO_API_KEY') is None:
+            print('--auth_type api requires --api_key to be set, manually enter API key.')
         api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
-        arpio_auth_header = {'X-Api-Key':api_key}
+        if api_key is None:
+            parser.error('--auth_type api requires an API key')
+            exit(1)
+        arpio_auth_header = {'X-Api-Key' : api_key}
     elif args.auth_type == 'token':
         try:
             username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
