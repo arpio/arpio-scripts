@@ -172,7 +172,7 @@ def parse_tag_rules(tag_string:str) -> list[dict]:
     
     return tag_rules
 
-def add_aws_account_id(account_id, aws_account_id, arpio_auth_header=dict):
+def add_aws_account_id(account_id, aws_account_id, arpio_auth_header):
     url = build_arpio_url(f'accounts/{account_id}/awsAccounts')
     payload = {
         'awsAccountId': aws_account_id,
