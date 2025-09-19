@@ -450,7 +450,7 @@ if __name__ == '__main__':
     parser.add_argument('-u', '--username', help='Arpio Username')
     parser.add_argument('-p', '--password', help='Arpio Password')
     parser.add_argument('-k', '--api-key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
-    parser.add_argument('-p', '--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environmental variables for autodetection to work.', action='store_true', default=False)
+    parser.add_argument('-p', '--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environment variables for autodetection to work.', action='store_true', default=False)
     parser.add_argument('-dn', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging. Insecure, will log Tokens/Keys for debugging.', action='store_true', default=False)
     args = parser.parse_args()
 
