@@ -477,8 +477,8 @@ def access_template_provisioning(row, arpio_account, arpio_auth_header):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Arpio Onboarding Script')
     parser.add_argument('--csv', help='Path to input CSV file')
-    parser.add_argument('-a', '--arpio_account', help='Arpio Account ID', required=True)
-    parser.add_argument('-auth', '--auth_type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
+    parser.add_argument('-a', '--arpio-account', help='Arpio Account ID', required=True)
+    parser.add_argument('-auth', '--auth-type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
                         API keys may be stored as an environment variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
                         If using Token authentication, provide the username and password arguments to the script. \
                         Both username and password can be stored as environmental \
@@ -486,8 +486,8 @@ if __name__ == '__main__':
                         required=True, choices=['api','token'], default='token')
     parser.add_argument('-u', '--username', help='Arpio Username')
     parser.add_argument('-p', '--password', help='Arpio Password')
-    parser.add_argument('-k', '--api_key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
-    parser.add_argument('-dn', '--debug_network', help='Flag to enable HTTP/S Network Debugging flagging', action='store_true', default=False)
+    parser.add_argument('-k', '--api-key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
+    parser.add_argument('-dn', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging. Insecure, will log Tokens/Keys for debugging.', action='store_true', default=False)
     args = parser.parse_args()
 
     setup_handler(args.debug_network)
