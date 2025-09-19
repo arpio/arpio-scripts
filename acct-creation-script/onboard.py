@@ -293,12 +293,13 @@ def install_access_template(session, aws_account, region, template_url, stack_na
         time.sleep(5)
         stack_details = cfn.describe_stacks(StackName=stack_name)['Stacks'][0]
         status = stack_details['StackStatus']
+        print(stack_details)
         failed_status = {'CREATE_FAILED', 'DELETE_COMPLETE', 'DELETE_FAILED',
                          'ROLLBACK_FAILED', 'ROLLBACK_COMPLETE', 'UPDATE_FAILED',
                          'UPDATE_ROLLBACK_FAILED', 'UPDATE_ROLLBACK_COMPLETE'}
         success_status = {'CREATE_COMPLETE', 'UPDATE_COMPLETE'}
         if status in success_status:
-            safe_print(f'✅ Updated template in AWS: {aws_account}/{region}') 
+            safe_print(f'✅ Updated template in AWS: {aws_account}/{session.region_name}') 
             break
         elif status in failed_status:
             raise Exception(f'❌ Failed to install template in AWS: {aws_account}/{region}: {status}')
