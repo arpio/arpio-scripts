@@ -62,6 +62,9 @@ ARPIO_TOKEN_COOKIE = 'ArpioSession'
 NONE_ROLE = None
 DEFAULT_TAG_RULE = "arpio-protected=true"
 os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
+opener = build_opener()
+cookie_jar = cookiejar.CookieJar()
+cookie_handler = HTTPCookieProcessor(cookie_jar)
 
 # ----------- Boto3 import check ----------   
 try:
@@ -113,33 +116,42 @@ def create_proxy_handler():
     proxy_dict = get_proxy_dict()
     
     # Remove 'no_proxy' from the dict as it's handled separately
-    no_proxy = proxy_dict.pop('no_proxy', None)
+    proxy_dict.pop('no_proxy', None)
     
     if proxy_dict:
         # Create ProxyHandler with the proxy dictionary
         proxy_handler = ProxyHandler(proxy_dict)
+        print(f'Proxy environment detected, using {proxy_dict}')
     else:
         # No proxy configuration found, use default handler
         proxy_handler = ProxyHandler({})
-        print("No proxy environment variables found, using direct connection")
+        print(f'No proxy environment variables found, using direct connection')
     
     return proxy_handler
 
-proxy_handler = create_proxy_handler()
-cookie_jar = cookiejar.CookieJar()
-
-# Add debugging handler for visibility
-http_handler = HTTPHandler(debuglevel=1)
-https_handler = HTTPSHandler(debuglevel=1)
-cookie_handler = HTTPCookieProcessor(cookie_jar)
-# Create Opener
-opener = build_opener(
-    proxy_handler, 
-    cookie_handler,
-    http_handler,
-    https_handler
-)
-install_opener(opener)
+def setup_handler(debug_network):
+    global opener
+    global cookie_jar
+    proxy_handler = create_proxy_handler()
+   
+    # Add debugging handler for visibility
+    if debug_network:
+        http_handler = HTTPHandler(debuglevel=1)
+        https_handler = HTTPSHandler(debuglevel=1)
+        opener = build_opener(
+            proxy_handler,
+            http_handler, 
+            https_handler,
+            cookie_handler
+        ) 
+    # Create Opener
+    else:
+        opener = build_opener(
+            proxy_handler,
+            cookie_handler
+        )
+    install_opener(opener)
+    return
 
 
 # HTTP helper functions
@@ -331,7 +343,6 @@ def install_access_template(session, aws_account, region, template_url, stack_na
         time.sleep(5)
         stack_details = cfn.describe_stacks(StackName=stack_name)['Stacks'][0]
         status = stack_details['StackStatus']
-        print(stack_details)
         failed_status = {'CREATE_FAILED', 'DELETE_COMPLETE', 'DELETE_FAILED',
                          'ROLLBACK_FAILED', 'ROLLBACK_COMPLETE', 'UPDATE_FAILED',
                          'UPDATE_ROLLBACK_FAILED', 'UPDATE_ROLLBACK_COMPLETE'}
@@ -475,7 +486,10 @@ if __name__ == '__main__':
     parser.add_argument('-u', '--username', help='Arpio Username')
     parser.add_argument('-p', '--password', help='Arpio Password')
     parser.add_argument('-k', '--api_key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
+    parser.add_argument('-dn', '--debug_network', help='Flag to enable HTTP/S Network Debugging flagging', action='store_true', default=False)
     args = parser.parse_args()
+
+    setup_handler(args.debug_network)
     
     print("=== Arpio Onboarding Script ===")
     print(f'Arpio Environment: [{ARPIO_API_ROOT}]')
