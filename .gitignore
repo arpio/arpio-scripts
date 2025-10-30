@@ -1,4 +1,30 @@
-*.iml
+# Python virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.env/
 
+# virtualenv
+pyvenv.cfg
+pip-selfcheck.json
+
+# Poetry
+.venv/
+poetry.lock
+
+# Pipenv
+Pipfile.lock
+
+# pyenv
+.python-version
+
+# Conda
+conda-meta/
+.conda/
+
+*.iml
 .DS_Store
 acct-creation-script/*.csv
