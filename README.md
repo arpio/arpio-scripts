@@ -274,7 +274,7 @@ python3 cfn-template-update.py -a <arpio-account-id> -auth api
 - `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
 - `-r, --role-name`: IAM role to assume in each account (default: `OrganizationAccountAccessRole`)
 - `-w, --max-workers`: Max parallel workers (default: 20)
-- `-p, --proxy`: Enable proxy support
+- `-pr, --proxy`: Enable proxy support
 - `-dn, --debug-network`: Enable HTTP/S network debugging
 
 ### Environment Variables
@@ -352,7 +352,7 @@ python3 onboard.py --csv applications.csv -a <arpio-account-id> -auth api
 - `-u, --username`: Arpio username (for token auth)
 - `-p, --password`: Arpio password (for token auth)
 - `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
-- `-p, --proxy`: Enable proxy support
+- `-pr, --proxy`: Enable proxy support
 - `-dn, --debug-network`: Enable HTTP/S network debugging (insecure, logs tokens)
 
 ### Environment Variables

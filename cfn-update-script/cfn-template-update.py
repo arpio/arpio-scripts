@@ -337,7 +337,7 @@ def main():
                         help=f'Role name to assume in each AWS account (default: {DEFAULT_IAM_ROLE})')
     parser.add_argument('--max-workers', '-w', type=int, default=20,
                         help='Max number of sync pairs to update in parallel (default: 20)')
-    parser.add_argument('-p', '--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environment variables for autodetection to work.', action='store_true', default=False)
+    parser.add_argument('-pr', '--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environment variables for autodetection to work.', action='store_true', default=False)
     parser.add_argument('-dn', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging', action='store_true', default=False)
     args = parser.parse_args()
 
