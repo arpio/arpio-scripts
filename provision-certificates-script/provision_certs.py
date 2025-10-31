@@ -23,7 +23,7 @@
 # To test the script, specify the --dry-run flag
 #
 # If your Arpio account is configured to use SSO, you will need to set the auth_url variable in this script below 
-# to the identity provider url or use the --auth_url flag.
+# to the identity provider url or use the --auth-url flag.
 
 # Ex. - https://api.arpio.io/api/auth/authenticate?identityProviderId=example
 auth_url = None
@@ -207,7 +207,7 @@ def provision_cert(acm_client, _primary_account, _primary_region, recovery_accou
 @click.option('-p', '--password', prompt='Arpio password', hide_input=True)
 @click.option('-o', '--outfile', prompt='DNS entry output file', default=NO_FILE, show_default=True)
 @click.option('-d', '--dry-run', is_flag=True)
-@click.option('-au', '--auth-url',default=auth_url, show_default=True, prompt_required=False )
+@click.option('--auth-url', default=auth_url, show_default=True, prompt_required=False )
 
 def provision(arpio_account, username, password, dry_run, outfile, auth_url):
 
