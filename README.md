@@ -196,7 +196,7 @@ python3 provision_certs.py \
   -a <arpio-account-id> \
   -u <username> \
   -p <password> \
-  -au "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id" \
+  --auth-url "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id" \
   -o dns_entries.json
 
 # Dry run (test without making changes)
@@ -223,7 +223,7 @@ python3 create_validation_dns_entries.py -f dns_entries.json --dry-run
 - `-p, --password`: Arpio password
 - `-o, --outfile`: Output file for DNS entries (default: print to console)
 - `-d, --dry-run`: Test mode, don't create certificates
-- `-au, --auth-url`: SSO identity provider authentication URL (format: `https://api.arpio.io/api/auth/authenticate?identityProviderId=<your-id>`)
+- `--auth-url`: SSO identity provider authentication URL (format: `https://api.arpio.io/api/auth/authenticate?identityProviderId=<your-id>`)
 
 **`create_validation_dns_entries.py`:**
 - `-f, --entry-file`: Input JSON file from provision_certs.py
@@ -250,13 +250,13 @@ pip install boto3>=1.26.30
 # Using API key authentication
 python3 cfn-template-update.py \
   -a <arpio-account-id> \
-  -auth api \
+  --auth-type api \
   -k <api-key-id>:<api-key-secret>
 
 # Using username/password authentication
 python3 cfn-template-update.py \
   -a <arpio-account-id> \
-  -auth token \
+  -t token \
   -u <username> \
   -p <password>
 
@@ -268,14 +268,14 @@ python3 cfn-template-update.py -a <arpio-account-id> -auth api
 ### Options
 
 - `-a, --arpio-account`: Arpio account ID (required)
-- `-auth, --auth-type`: Authentication type: `api` or `token` (required)
+- `-t, --auth-type`: Authentication type: `api` or `token` (required)
 - `-u, --username`: Arpio username (for token auth)
 - `-p, --password`: Arpio password (for token auth)
 - `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
 - `-r, --role-name`: IAM role to assume in each account (default: `OrganizationAccountAccessRole`)
 - `-w, --max-workers`: Max parallel workers (default: 20)
-- `-pr, --proxy`: Enable proxy support
-- `-dn, --debug-network`: Enable HTTP/S network debugging
+- `--proxy`: Enable proxy support
+- `-n, --debug-network`: Enable HTTP/S network debugging
 
 ### Environment Variables
 
@@ -328,14 +328,14 @@ primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,appl
 python3 onboard.py \
   --csv applications.csv \
   -a <arpio-account-id> \
-  -auth api \
+  -t api \
   -k <api-key-id>:<api-key-secret>
 
 # Using username/password authentication
 python3 onboard.py \
   --csv applications.csv \
   -a <arpio-account-id> \
-  -auth token \
+  --auth-type token \
   -u <username> \
   -p <password>
 
@@ -348,12 +348,12 @@ python3 onboard.py --csv applications.csv -a <arpio-account-id> -auth api
 
 - `--csv`: Path to input CSV file (required)
 - `-a, --arpio-account`: Arpio account ID (required)
-- `-auth, --auth-type`: Authentication type: `api` or `token` (required)
+- `-t, --auth-type, --auth-type`: Authentication type: `api` or `token` (required)
 - `-u, --username`: Arpio username (for token auth)
 - `-p, --password`: Arpio password (for token auth)
 - `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
-- `-pr, --proxy`: Enable proxy support
-- `-dn, --debug-network`: Enable HTTP/S network debugging (insecure, logs tokens)
+- `--proxy`: Enable proxy support
+- `-n, --debug-network`: Enable HTTP/S network debugging (insecure, logs tokens)
 
 ### Environment Variables
 
