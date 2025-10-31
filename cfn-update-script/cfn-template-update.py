@@ -324,7 +324,7 @@ def update_template(upd:TemplateUpdate,session:Session,role:str) -> None:
 def main():
     parser = argparse.ArgumentParser(description='Update Arpio access templates across AWS sync pairs.')
     parser.add_argument('-a', '--arpio-account', help='Arpio Account ID', required=True)
-    parser.add_argument('-auth', '--auth-type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
+    parser.add_argument('-t', '--auth-type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
                         API keys may be stored as an environment variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
                         If using Token authentication, provide the username and password arguments to the script. \
                         Both username and password can be stored as environmental \
@@ -333,12 +333,12 @@ def main():
     parser.add_argument('-u', '--username', help='Arpio Username')
     parser.add_argument('-p', '--password', help='Arpio Password')
     parser.add_argument('-k', '--api-key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
-    parser.add_argument('--role-name', '-r', default=DEFAULT_IAM_ROLE,
+    parser.add_argument('-r', '--role-name', default=DEFAULT_IAM_ROLE,
                         help=f'Role name to assume in each AWS account (default: {DEFAULT_IAM_ROLE})')
-    parser.add_argument('--max-workers', '-w', type=int, default=20,
+    parser.add_argument('-w', '--max-workers', type=int, default=20,
                         help='Max number of sync pairs to update in parallel (default: 20)')
-    parser.add_argument('-pr', '--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environment variables for autodetection to work.', action='store_true', default=False)
-    parser.add_argument('-dn', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging', action='store_true', default=False)
+    parser.add_argument('--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environment variables for autodetection to work.', action='store_true', default=False)
+    parser.add_argument('-n', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging', action='store_true', default=False)
     args = parser.parse_args()
 
     setup_handler(args.debug_network, args.proxy)
