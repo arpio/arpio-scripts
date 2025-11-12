@@ -230,7 +230,7 @@ def provision(arpio_account, username, password, dry_run, outfile, auth_url, aut
     #Determine form of auth between API and Token user/pass
     if auth_type == 'api':
         if auth_type == 'api' and api_key is None and os.environ.get('ARPIO_API_KEY') is None:
-            print('--auth-type api requires --api_-key to be set, manually enter API key.')
+            print('--auth-type api requires --api-key to be set, manually enter API key.')
         #get api_key var from click input or environ
         api_key = api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
         if api_key is None:
