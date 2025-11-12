@@ -40,6 +40,7 @@ import re
 from boto3.session import Session
 from botocore.exceptions import ClientError
 from urllib.parse import urlsplit, parse_qs, urljoin
+from getpass import getpass
 
 
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
@@ -124,16 +125,16 @@ def get_account_id(sts_client):
     resp = sts_client.get_caller_identity()
     return resp['Account']
 
-def list_applications(accountId, token):
+def list_applications(accountId, arpio_auth_header):
     applications_url = build_arpio_url('accounts', accountId, 'applications')
-    resp = requests.get(applications_url, cookies={ARPIO_TOKEN_COOKIE: token})
+    resp = requests.get(applications_url, cookies=arpio_auth_header)
     if resp.status_code != 200:
         raise Exception(f'Failed to list applications: {resp.content}')
     return resp.json()
 
-def list_missing_cert_issues(accountId, applicationId, token):
+def list_missing_cert_issues(accountId, applicationId, arpio_auth_header):
     issues_url = build_arpio_url('accounts', accountId, 'applications', applicationId, 'issues')
-    resp = requests.get(issues_url, cookies={ARPIO_TOKEN_COOKIE: token})
+    resp = requests.get(issues_url, cookies=arpio_auth_header)
     if resp.status_code != 200:
         raise Exception(f'Failed to list issues: {resp.content}')
     return [i['issue'] for i in resp.json() if i['issue']['type'] == 'acmCertificateNotFound']
@@ -208,11 +209,50 @@ def provision_cert(acm_client, _primary_account, _primary_region, recovery_accou
 @click.option('-o', '--outfile', prompt='DNS entry output file', default=NO_FILE, show_default=True)
 @click.option('-d', '--dry-run', is_flag=True)
 @click.option('--auth-url', default=auth_url, show_default=True, prompt_required=False )
+@click.option('-k', '--api-key', prompt='Arpio API key in the form \"<apiKeyID>:<secret>\". \
+              Defaults to the OS Environmental Variable \"ARPIO_API_KEY\". \
+              Will show true/false if present/absent/', \
+              default=print(bool(os.environ.get('ARPIO_API_KEY'))),hide_input=True, \
+              show_default=True )
+@click.option('-t', '--auth-type', prompt='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
+                        API keys may be stored as an environment variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
+                        If using Token authentication, provide the username and password arguments to the script. \
+                        Both username and password can be stored as environmental \
+                        variables under \"ARPIO_USERNAME\" and \"ARPIO_PASSWORD\"', 
+                        required=True, choices=['api','token'], default='token')
 
-def provision(arpio_account, username, password, dry_run, outfile, auth_url):
 
-    # Get a token to call the Arpio API
-    token = get_arpio_token(arpio_account, username, password, auth_url)
+
+
+def provision(arpio_account, username, password, dry_run, outfile, auth_url, auth_type, api_key):
+
+
+    #Determine form of auth between API and Token user/pass
+    if auth_type == 'api':
+        if auth_type == 'api' and api_key is None and os.environ.get('ARPIO_API_KEY') is None:
+            print('--auth-type api requires --api_-key to be set, manually enter API key.')
+        #get api_key var from click input or environ
+        api_key = api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
+        if api_key is None:
+            print('API key not found')
+            exit(1)
+        #create auth header in cookie form
+        arpio_auth_header = {'X-Api-Key' : api_key}
+    elif auth_type == 'token':
+        try:
+            #confirm user and pass
+            username = username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
+            password = (password or os.getenv("ARPIO_PASSWORD")) or getpass.getpass('Arpio password: ')
+            #get token
+            token = get_arpio_token(arpio_account, username, password, auth_url)
+            arpio_auth_header = {ARPIO_TOKEN_COOKIE : token}
+
+        except Exception as e:
+            print(f"{e}")
+            exit(1)
+    else:
+        print(f'Missing arguments for authentication type. Please check your arguments and try again.')    
+        exit(1)
 
     # Validate that we have access to the AWS API, and identify the AWS account
     sts = Session().client('sts')
@@ -220,7 +260,7 @@ def provision(arpio_account, username, password, dry_run, outfile, auth_url):
     print(f'Current AWS account is {account_id}.  Certs required in other accounts will be skipped.\n')
     
     # Query for all defined applications
-    applications = list_applications(arpio_account, token)
+    applications = list_applications(arpio_account, arpio_auth_header)
 
     dns_entries = []
 
@@ -235,7 +275,7 @@ def provision(arpio_account, username, password, dry_run, outfile, auth_url):
         if recovery_account != account_id:
             continue
 
-        missing_cert_issues = list_missing_cert_issues(arpio_account, app['appId'], token)
+        missing_cert_issues = list_missing_cert_issues(arpio_account, app['appId'], arpio_auth_header)
         acm = Session(region_name=app['targetRegion']).client('acm')
         for issue in missing_cert_issues:
             primary_cert_arn = issue['sourceCertificateArn']
