@@ -164,8 +164,8 @@ def build_arpio_url(*path_bits):
 
 
 def get_arpio_token(account_id, username, password):
-    list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
-    body, status, resp_headers = http_get(list_apps_url)
+    list_account_url = build_arpio_url(f'accounts')
+    body, status, resp_headers = http_get(list_account_url)
     if status != 401:
         raise Exception(' Expected 401 on unauthenticated GET operation')
     
@@ -173,7 +173,7 @@ def get_arpio_token(account_id, username, password):
     if not auth_url:
         raise Exception(' No authentication URL in 401 response')
 
-    auth_url = urljoin(list_apps_url, auth_url)
+    auth_url = urljoin(list_account_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
     auth_response = json.loads(auth_body)
 
