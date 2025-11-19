@@ -37,7 +37,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
 DEFAULT_IAM_ROLE = 'OrganizationAccountAccessRole'
-DEFAULT_ARPIO_USER = 'arpio-user-email'
+DEFAULT_STACK_NAME = 'arpio-access'
 os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
 opener = build_opener()
 cookie_jar = cookiejar.CookieJar()
@@ -164,8 +164,8 @@ def build_arpio_url(*path_bits):
 
 
 def get_arpio_token(account_id, username, password):
-    list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
-    body, status, resp_headers = http_get(list_apps_url)
+    list_account_url = build_arpio_url(f'accounts')
+    body, status, resp_headers = http_get(list_account_url)
     if status != 401:
         raise Exception(' Expected 401 on unauthenticated GET operation')
     
@@ -173,7 +173,7 @@ def get_arpio_token(account_id, username, password):
     if not auth_url:
         raise Exception(' No authentication URL in 401 response')
 
-    auth_url = urljoin(list_apps_url, auth_url)
+    auth_url = urljoin(list_account_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
     auth_response = json.loads(auth_body)
 
@@ -220,7 +220,7 @@ def query_environments(arpio_auth_header, arpio_account:str)->List[SyncPair]:
                                                        app['targetRegion']) for app in applications]
 
 
-def needs_template_update(arpio_auth_header, arpio_account, sync_pair:SyncPair) -> List[TemplateUpdate]:
+def needs_template_update(arpio_auth_header, arpio_account, sync_pair:SyncPair, stack_name: str) -> List[TemplateUpdate]:
     url = build_arpio_url('accounts', arpio_account, 'syncPairs',
                           sync_pair.src_id, sync_pair.src_reg, sync_pair.tgt_id, sync_pair.tgt_reg, 'access')
     body, code, _ = http_get(url, headers=arpio_auth_header)
@@ -228,8 +228,8 @@ def needs_template_update(arpio_auth_header, arpio_account, sync_pair:SyncPair) 
         raise Exception(f'Failed to query sync pair: {body.decode()}')
     info = json.loads(body)
 
-    source_stack = None if info.get('sourceIsLatest', True) and info.get('sourceConfigValid') else info.get('sourceCloudFormationAccessStackName')
-    target_stack = None if info.get('targetIsLatest', True) and info.get('targetConfigValid') else info.get('targetCloudFormationAccessStackName')
+    source_stack = None if info.get('sourceIsLatest') and info.get('sourceConfigValid') else info.get('sourceCloudFormationAccessStackName') or stack_name
+    target_stack = None if info.get('targetIsLatest') and info.get('targetConfigValid') else info.get('targetCloudFormationAccessStackName') or stack_name
     updates=[]
 
     try:
@@ -335,6 +335,8 @@ def main():
     parser.add_argument('-k', '--api-key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
     parser.add_argument('-r', '--role-name', default=DEFAULT_IAM_ROLE,
                         help=f'Role name to assume in each AWS account (default: {DEFAULT_IAM_ROLE})')
+    parser.add_argument('-s', '--stack-name', default=DEFAULT_STACK_NAME,
+                        help=f'CloudFormation Stack name to create if it doesn\'t exist. (default: {DEFAULT_STACK_NAME})')
     parser.add_argument('-w', '--max-workers', type=int, default=20,
                         help='Max number of sync pairs to update in parallel (default: 20)')
     parser.add_argument('--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environment variables for autodetection to work.', action='store_true', default=False)
@@ -350,17 +352,17 @@ def main():
     if args.auth_type == 'api':
         if args.auth_type == 'api' and args.api_key is None and os.environ.get('ARPIO_API_KEY') is None:
             print('--auth_type api requires --api_key to be set, manually enter API key.')
-        api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
+        api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass('Arpio API key: ')
         if api_key is None:
             parser.error('API key not found')
             exit(1)
         arpio_auth_header = {'X-Api-Key' : api_key}
     elif args.auth_type == 'token':
         try:
-            username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
+            username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username (email address): ')
             if check_email(username):
                 exit(1)
-            password = (args.password or os.getenv("ARPIO_PASSWORD")) or getpass.getpass('Arpio password: ')
+            password = (args.password or os.getenv("ARPIO_PASSWORD")) or getpass('Arpio password: ')
             token = get_arpio_token(arpio_account, username, password)
             arpio_auth_header = {ARPIO_TOKEN_COOKIE : token}
 
@@ -387,7 +389,7 @@ def main():
     print(f'\n🔍 Found {len(unique_pairs)} unique sync pairs. Starting parallel template update checks with {max_workers} workers...\n')
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(needs_template_update, arpio_auth_header, arpio_account, sync_pair) for sync_pair in unique_pairs]
+            futures = [executor.submit(needs_template_update, arpio_auth_header, arpio_account, sync_pair, args.stack_name) for sync_pair in unique_pairs]
 
             for f in as_completed(futures):
                 template_updates.update(f.result())
@@ -400,7 +402,7 @@ def main():
     print(f'\n🔍 Found {len(template_updates)} templates to upgrade. Starting parallel updates with {max_workers} workers...\n')
     if max_workers == 0:
         print(f'\n✅ No templates to upgrade, exiting...\n')
-        exit(1)
+        exit(0)
 
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
