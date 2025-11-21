@@ -405,8 +405,8 @@ def access_template_provisioning(row, arpio_account, arpio_auth_header):
         src_template, tgt_template = get_access_templates(arpio_account, primary_environment, recovery_environment, arpio_auth_header)
 
         #Splits Signed stack name file from URL, then stack name from signed yaml
-        primary_stack_name = (src_template.split('/')[-1][0:-4]).split('.')[0]
-        recovery_stack_name = (tgt_template.split('/')[-1][0:-4]).split('.')[0]
+        primary_stack_name = (src_template.split('/')[-1]).split('.')[0]
+        recovery_stack_name = (tgt_template.split('/')[-1]).split('.')[0]
 
         with ThreadPoolExecutor() as executor:
             src_future = executor.submit(install_access_template, primary_session, primary_environment[0], primary_environment[1], src_template, primary_stack_name)
