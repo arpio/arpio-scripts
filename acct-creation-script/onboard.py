@@ -403,8 +403,10 @@ def access_template_provisioning(row, arpio_account, arpio_auth_header):
             recovery_session, _ = get_assumed_session(recovery_environment, recovery_iam_role)
 
         src_template, tgt_template = get_access_templates(arpio_account, primary_environment, recovery_environment, arpio_auth_header)
-        primary_stack_name = src_template.split('/')[-1][0:-4]
-        recovery_stack_name = tgt_template.split('/')[-1][0:-4]
+
+        #Splits Signed stack name file from URL, then stack name from signed yaml
+        primary_stack_name = (src_template.split('/')[-1]).split('.')[0]
+        recovery_stack_name = (tgt_template.split('/')[-1]).split('.')[0]
 
         with ThreadPoolExecutor() as executor:
             src_future = executor.submit(install_access_template, primary_session, primary_environment[0], primary_environment[1], src_template, primary_stack_name)
