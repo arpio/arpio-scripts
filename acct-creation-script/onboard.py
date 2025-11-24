@@ -305,17 +305,12 @@ def install_access_template(session, aws_account, region, template_url, stack_na
         time.sleep(5)
         stack_details = cfn.describe_stacks(StackName=stack_name)['Stacks'][0]
         status = stack_details['StackStatus']
-        failed_status = {'CREATE_FAILED', 'DELETE_COMPLETE', 'DELETE_FAILED',
-                         'ROLLBACK_FAILED', 'ROLLBACK_COMPLETE', 'UPDATE_FAILED',
-                         'UPDATE_ROLLBACK_FAILED', 'UPDATE_ROLLBACK_COMPLETE'}
-        success_status = {'CREATE_COMPLETE', 'UPDATE_COMPLETE'}
-        if status in success_status:
+
+        if status in {'CREATE_COMPLETE', 'UPDATE_COMPLETE'}:
             safe_print(f'✅ Updated template in AWS: {aws_account}/{session.region_name}') 
             break
-        elif status in failed_status:
-            raise Exception(f'❌ Failed to install template in AWS: {aws_account}/{region}: {status}')
-        else:
-            raise Exception(f'Unknown AWS Cloudformation Status response. Status: {status}')
+        elif 'FAILED' in status or 'ROLLBACK' in status:
+            raise Exception(f'Stack operation failed: {status}')
             
 def create_application_call(arpio_account, prod, recovery, emails, arpio_auth_header, application_name, selection_rules, rpo):
     application_url = build_arpio_url('accounts', arpio_account, 'applications')
