@@ -47,10 +47,24 @@ import threading
 import argparse
 import re
 from urllib.parse import urlsplit, parse_qs, urljoin
-from urllib.request import Request, build_opener, HTTPCookieProcessor
+from urllib.request import Request, build_opener, HTTPCookieProcessor, HTTPHandler, HTTPSHandler, ProxyHandler, install_opener
 from urllib.error import HTTPError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http import cookiejar
+
+# Declare globals
+ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
+DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
+DEFAULT_ARPIO_USER = 'arpio-user-email'
+DEFAULT_NOTIFICATION_ADDRESS = 'Email'
+STACK_NAME = 'ArpioAccess'
+ARPIO_TOKEN_COOKIE = 'ArpioSession'
+NONE_ROLE = None
+DEFAULT_TAG_RULE = "arpio-protected=true"
+os.environ['AWS_STS_REGIONAL_ENDPOINTS'] = 'regional'
+opener = build_opener()
+cookie_jar = cookiejar.CookieJar()
+cookie_handler = HTTPCookieProcessor(cookie_jar)
 
 # ----------- Boto3 import check ----------   
 try:
@@ -67,20 +81,40 @@ _print_lock = threading.Lock()
 def safe_print(*args, **kwargs):
     with _print_lock:
         print(*args, **kwargs)
-    
-# Setup cookie jar and opener
-cookie_jar = cookiejar.CookieJar()
-opener = build_opener(HTTPCookieProcessor(cookie_jar))
 
-# Declare globals
-ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
-DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
-DEFAULT_ARPIO_USER = 'arpio-user-email'
-DEFAULT_NOTIFICATION_ADDRESS = 'Email'
-STACK_NAME = 'ArpioAccess'
-ARPIO_TOKEN_COOKIE = 'ArpioSession'
-NONE_ROLE = None
-DEFAULT_TAG_RULE = "arpio-protected=true"
+
+def setup_handler(debug_network, proxy):
+    global opener
+    global cookie_jar
+
+    http_handler = HTTPHandler(debuglevel=1)
+    https_handler = HTTPSHandler(debuglevel=1)
+   
+    if proxy and debug_network:
+        opener = build_opener(
+            ProxyHandler(),
+            cookie_handler,
+            http_handler, 
+            https_handler
+        ) 
+    elif debug_network:
+        opener = build_opener(
+            cookie_handler,
+            http_handler, 
+            https_handler
+        ) 
+    # Create Opener
+    elif proxy:
+        opener = build_opener(
+            ProxyHandler(),
+            cookie_handler
+        )
+    else:
+        opener = build_opener(
+            cookie_handler
+        )
+    install_opener(opener)
+    return
 
 
 # HTTP helper functions
@@ -151,7 +185,7 @@ def parse_tag_rules(tag_string:str) -> list[dict]:
     
     return tag_rules
 
-def add_aws_account_id(account_id, aws_account_id, arpio_auth_header=dict):
+def add_aws_account_id(account_id, aws_account_id, arpio_auth_header):
     url = build_arpio_url(f'accounts/{account_id}/awsAccounts')
     payload = {
         'awsAccountId': aws_account_id,
@@ -183,7 +217,6 @@ def get_arpio_token(username, password):
     if not auth_url:
         raise Exception('❌ No authentication URL in 401 response')
     
-    auth_url = urljoin(list_account_url, auth_url)
     auth_url = urljoin(list_account_url, auth_url)
     auth_body, _, _ = http_get(auth_url)
     auth_response = json.loads(auth_body)
@@ -221,16 +254,19 @@ def get_arpio_token(username, password):
     
     return token
 
-def get_assumed_session(boto_session, environment, role):
+def get_assumed_session(environment, role):
     region_name = environment[1]
-    sts = boto_session.client('sts') #removed region-name for opt-in regions 
-    role_arn = f'arn:aws:iam::{environment[0]}:role/{role}'
+    boto_session = Session(region_name=region_name)
+    sts = boto_session.client('sts', region_name=region_name) #If using opt-in regions, must have AWS_STS_REGIONAL_ENDPOINTS= 'regional' set
+    aws_account = environment[0]
+    role_arn = f'arn:aws:iam::{aws_account}:role/{role}'
     assumed = sts.assume_role(RoleArn=role_arn, RoleSessionName='arpio_provisioning')
     assumed_session = Session(
         aws_access_key_id=assumed['Credentials']['AccessKeyId'],
         aws_secret_access_key=assumed['Credentials']['SecretAccessKey'],
         aws_session_token=assumed['Credentials']['SessionToken'],
         region_name=region_name
+
     )
     assumed_sts = assumed_session.client('sts')
     caller = assumed_sts.get_caller_identity()
@@ -239,7 +275,7 @@ def get_assumed_session(boto_session, environment, role):
 def get_access_templates(arpio_account, prod, recovery, arpio_auth_header):
     url = build_arpio_url('accounts', arpio_account, 'syncPairs',
                           prod[0], prod[1], recovery[0], recovery[1], 'accessTemplates')
-    body, code, _ = http_get(url, headers={arpio_auth_header})
+    body, code, _ = http_get(url, headers=arpio_auth_header)
     if code != 200:
         raise Exception(f'❌ Failed to get access templates: {body.decode()}')
     templates = json.loads(body)
@@ -269,15 +305,12 @@ def install_access_template(session, aws_account, region, template_url, stack_na
         time.sleep(5)
         stack_details = cfn.describe_stacks(StackName=stack_name)['Stacks'][0]
         status = stack_details['StackStatus']
-        failed_status = {'CREATE_FAILED', 'DELETE_COMPLETE', 'DELETE_FAILED',
-                         'ROLLBACK_FAILED', 'ROLLBACK_COMPLETE', 'UPDATE_FAILED',
-                         'UPDATE_ROLLBACK_FAILED', 'UPDATE_ROLLBACK_COMPLETE'}
-        success_status = {'CREATE_COMPLETE', 'UPDATE_COMPLETE'}
-        if status in success_status:
-            safe_print(f'✅ Updated template in AWS: {aws_account}/{region}') 
+
+        if status in {'CREATE_COMPLETE', 'UPDATE_COMPLETE'}:
+            safe_print(f'✅ Updated template in AWS: {aws_account}/{session.region_name}') 
             break
-        elif status in failed_status:
-            raise Exception(f'❌ Failed to install template in AWS: {aws_account}/{region}: {status}')
+        elif 'FAILED' in status or 'ROLLBACK' in status:
+            raise Exception(f'Stack operation failed: {status}')
             
 def create_application_call(arpio_account, prod, recovery, emails, arpio_auth_header, application_name, selection_rules, rpo):
     application_url = build_arpio_url('accounts', arpio_account, 'applications')
@@ -355,28 +388,46 @@ def access_template_provisioning(row, arpio_account, arpio_auth_header):
         recovery_iam_role = row.get('recovery_iam_role', NONE_ROLE)
         if not recovery_iam_role:
             recovery_iam_role = NONE_ROLE
-
-        session = Session()
+     
         primary_session = Session(region_name=primary_environment[1])
         recovery_session = Session(region_name=recovery_environment[1])
 
         if primary_iam_role != NONE_ROLE:
-            primary_session, _ = get_assumed_session(session, primary_environment, primary_iam_role)
+            primary_session, _ = get_assumed_session(primary_environment, primary_iam_role)
         if recovery_iam_role != NONE_ROLE:
-            recovery_session, _ = get_assumed_session(session, recovery_environment, recovery_iam_role)
+            recovery_session, _ = get_assumed_session(recovery_environment, recovery_iam_role)
 
         src_template, tgt_template = get_access_templates(arpio_account, primary_environment, recovery_environment, arpio_auth_header)
-        primary_stack_name = src_template.split('/')[-1][0:-4]
-        recovery_stack_name = tgt_template.split('/')[-1][0:-4]
+
+        #Splits Signed stack name file from URL, then stack name from signed yaml
+        primary_stack_name = (src_template.split('/')[-1]).split('.')[0]
+        recovery_stack_name = (tgt_template.split('/')[-1]).split('.')[0]
 
         with ThreadPoolExecutor() as executor:
             src_future = executor.submit(install_access_template, primary_session, primary_environment[0], primary_environment[1], src_template, primary_stack_name)
             tgt_future = executor.submit(install_access_template, recovery_session, recovery_environment[0], recovery_environment[1], tgt_template, recovery_stack_name)
+            
             try:
                 src_future.result()
-                tgt_future.result()
+
             except Exception as e:
-                print(f"❌ Error installing access template for application {row.get('application_name')}: {e}")
+                error = str(e)
+                if "ValidationError" in error and "No updates are to be performed" in error:
+                    print(f"Stack {primary_environment} is already up to date - no changes needed")
+                else:
+                    print(f"An unexpected error occurred: {error}")
+                    raise Exception(f"❌ Error installing access template for application {row.get('application_name')}: {e}")
+
+            try:
+                tgt_future.result()
+
+            except Exception as e:
+                error = str(e)
+                if "ValidationError" in error and "No updates are to be performed" in error:
+                    print(f"Stack {recovery_environment} is already up to date - no changes needed")
+                else:
+                    print(f"An unexpected error occurred: {error}")
+                    raise Exception(f"❌ Error installing access template for application {row.get('application_name')}: {e}")
 
     except Exception as e:
         print(f"❌ Error in provisioning: {e}")
@@ -385,9 +436,9 @@ def access_template_provisioning(row, arpio_account, arpio_auth_header):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Arpio Onboarding Script')
-    parser.add_argument('--csv', help='Path to input CSV file')
-    parser.add_argument('-a', '--arpio_account', help='Arpio Account ID', required=True)
-    parser.add_argument('-auth', '--auth_type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
+    parser.add_argument('-c', '--csv', help='Path to input CSV file')
+    parser.add_argument('-a', '--arpio-account', help='Arpio Account ID', required=True)
+    parser.add_argument('-t', '--auth-type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
                         API keys may be stored as an environment variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
                         If using Token authentication, provide the username and password arguments to the script. \
                         Both username and password can be stored as environmental \
@@ -395,21 +446,26 @@ if __name__ == '__main__':
                         required=True, choices=['api','token'], default='token')
     parser.add_argument('-u', '--username', help='Arpio Username')
     parser.add_argument('-p', '--password', help='Arpio Password')
-    parser.add_argument('-k', '--api_key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
+    parser.add_argument('-k', '--api-key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
+    parser.add_argument('--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environment variables for autodetection to work.', action='store_true', default=False)
+    parser.add_argument('-n', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging. Insecure, will log Tokens/Keys for debugging.', action='store_true', default=False)
     args = parser.parse_args()
+
+    setup_handler(args.debug_network, args.proxy)
     
     print("=== Arpio Onboarding Script ===")
     print(f'Arpio Environment: [{ARPIO_API_ROOT}]')
 
     arpio_account = args.arpio_account or input(f'Arpio account ID [{DEFAULT_ARPIO_ACCOUNT}]: ') or DEFAULT_ARPIO_ACCOUNT
 
-    if args.auth_type == 'api' and args.api_key is None:
-        parser.error('--auth_type api requires --api_key to be set')
-        sys.exit(1)
-
     if args.auth_type == 'api':
+        if args.auth_type == 'api' and args.api_key is None and os.environ.get('ARPIO_API_KEY') is None:
+            print('--auth_type api requires --api_key to be set, manually enter API key.')
         api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass.getpass('Arpio API key: ')
-        arpio_auth_header = {'X-Api-Key': api_key}
+        if api_key is None:
+            parser.error('--auth_type api requires an API key')
+            exit(1)
+        arpio_auth_header = {'X-Api-Key' : api_key}
     elif args.auth_type == 'token':
         try:
             username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username [{DEFAULT_ARPIO_USER}]: ') or DEFAULT_ARPIO_USER
