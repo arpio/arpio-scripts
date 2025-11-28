@@ -21,7 +21,6 @@ def create_sts_client(sts):
     # Try with different regions to see the behavior
     print("\nTesting different regions:")
     
-
     # Test with ap-south-2 (opt-in region)
     sts_client = boto3.client('sts', region_name='ap-south-2')
     print(f"  ap-south-2: {sts_client.meta.endpoint_url}")
@@ -30,10 +29,11 @@ def create_sts_client(sts):
     sts_client = boto3.client('sts', region_name='us-east-1')
     print(f"  us-east-1: {sts_client.meta.endpoint_url}")
 
-        # Test with us-east-1 (original region)
+    # Test with us-east-2 (original region)
     sts_client = boto3.client('sts', region_name='us-east-2')
     print(f"  us-east-2: {sts_client.meta.endpoint_url}")
-    
+
+    # Test with ap-southeast-1 (original region)
     sts_client = boto3.client('sts', region_name='ap-southeast-1')
     print(f"  ap-southeast-1: {sts_client.meta.endpoint_url}")
 
