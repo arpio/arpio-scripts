@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+
+"""
+Utility to illustrate which STS endpoints AWS uses with different AWS_STS_REGIONAL_ENDPOINTS settings
+"""
+
 import boto3
 import os
 import botocore
