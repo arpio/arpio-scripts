@@ -326,7 +326,7 @@ def create_application_call(arpio_account, prod, recovery, emails, arpio_auth_he
         "notificationEmails": emails
     }
 
-    body, code, _ = http_post(application_url, data= application_payload, headers={(arpio_auth_header | {'Content-Type': 'application/json'})})
+    body, code, _ = http_post(application_url, data= application_payload, headers=(arpio_auth_header | {'Content-Type': 'application/json'}))
     if code != 201:
         raise Exception(f'❌ Failed to create application: {body.decode()}')
     if code == 409:
@@ -361,14 +361,13 @@ def create_application(row, arpio_account, arpio_auth_header):
                 print(e)
             src_future.result()
             tgt_future.result()
-
         try:
             create_application_call(
                 arpio_account,
                 primary_environment,
                 recovery_environment,
                 [notification_email],
-                token,
+                arpio_auth_header,
                 application_name,
                 tag_rules,  # Tag selection rules
                 recovery_point_objective # default 60m
