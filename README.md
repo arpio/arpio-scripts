@@ -262,7 +262,7 @@ python3 cfn-template-update.py \
 
 # Using environment variables
 export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
-python3 cfn-template-update.py -a <arpio-account-id> -auth api
+python3 cfn-template-update.py -a <arpio-account-id> -t api
 ```
 
 ### Options
