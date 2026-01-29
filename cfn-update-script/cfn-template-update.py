@@ -21,11 +21,12 @@
 import argparse
 import json
 import os
+import subprocess
 import threading
 import time
-import re 
+import re
 from sys import exit, version_info
-from typing import List
+from typing import List, Optional
 from dataclasses import dataclass
 from getpass import getpass
 from urllib.error import HTTPError
@@ -265,6 +266,95 @@ def get_access_templates(arpio_account, sync_pair:SyncPair, arpio_auth_header):
     return templates['sourceTemplateS3Url'], templates['targetTemplateS3Url']
 
 
+# ---------- SSO Authentication ----------
+
+SSO_SESSION_DURATION = '3600'
+
+# Cache for SSO credentials: key is account_id -> dict with credentials
+_sso_credentials_cache = {}
+_sso_cache_lock = threading.Lock()
+
+
+def authenticate_sso(role_arn: str, idp_id: str, sp_id: str, account_id: str) -> dict:
+    """Authenticate via Google SSO using gsts and return credentials dict."""
+    cmd = [
+        'gsts',
+        '--aws-role-arn', role_arn,
+        '--aws-region', 'us-east-1',  # Region doesn't matter for auth, credentials work in any region
+        '--idp-id', idp_id,
+        '--sp-id', sp_id,
+        '--aws-session-duration', SSO_SESSION_DURATION,
+        '--aws-profile', f'arpio-sso-{account_id}',  # Use unique profile per account to avoid cache conflicts
+        '-o', 'json',
+    ]
+
+    safe_print(f'🔐 Authenticating via SSO for {role_arn}...')
+    proc = subprocess.run(cmd, capture_output=True)
+
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode() if proc.stderr else ''
+        raise Exception(f'SSO authentication failed for {role_arn}: {stderr}')
+
+    if not proc.stdout:
+        raise Exception(f'SSO authentication returned no credentials for {role_arn}')
+
+    output = json.loads(proc.stdout)
+
+    return {
+        'AccessKeyId': output['AccessKeyId'],
+        'SecretAccessKey': output['SecretAccessKey'],
+        'SessionToken': output['SessionToken'],
+    }
+
+
+def get_sso_session(account_id: str, region: str, sso_config: Optional[dict], idp_id: str, sp_id: str) -> Session:
+    """Get or create an SSO session for the given account and region."""
+    with _sso_cache_lock:
+        credentials = _sso_credentials_cache.get(account_id)
+
+    if not credentials:
+        role_name = sso_config.get(account_id)
+        if not role_name:
+            raise Exception(f'No SSO role mapping found for account {account_id} in config')
+
+        role_arn = f'arn:aws:iam::{account_id}:role/{role_name}'
+        credentials = authenticate_sso(role_arn, idp_id, sp_id, account_id)
+
+        with _sso_cache_lock:
+            _sso_credentials_cache[account_id] = credentials
+
+    return Session(
+        aws_access_key_id=credentials['AccessKeyId'],
+        aws_secret_access_key=credentials['SecretAccessKey'],
+        aws_session_token=credentials['SessionToken'],
+        region_name=region
+    )
+
+
+def pre_authenticate_sso(template_updates, sso_config: Optional[dict], idp_id: str, sp_id: str):
+    """Pre-authenticate all unique accounts before parallel updates."""
+    unique_accounts = set(upd.aws_id for upd in template_updates)
+
+    safe_print(f'\n🔐 Pre-authenticating {len(unique_accounts)} unique accounts via SSO...\n')
+
+    for account_id in unique_accounts:
+        try:
+            role_name = sso_config.get(account_id)
+            if not role_name:
+                raise Exception(f'No SSO role mapping found for account {account_id} in config')
+            role_arn = f'arn:aws:iam::{account_id}:role/{role_name}'
+
+            with _sso_cache_lock:
+                if account_id not in _sso_credentials_cache:
+                    credentials = authenticate_sso(role_arn, idp_id, sp_id, account_id)
+                    _sso_credentials_cache[account_id] = credentials
+
+            safe_print(f'✅ SSO authenticated: {account_id}')
+        except Exception as e:
+            safe_print(f'❌ SSO authentication failed for {account_id}: {e}')
+            raise
+
+
 def get_assumed_session(boto_session, environment, role):
     region_name = environment[1]
     sts = boto_session.client('sts')
@@ -307,11 +397,14 @@ def install_access_template(session, aws_account, region, template_url, stack_na
             raise Exception(f'Stack operation failed: {status}')
 
 ##does process sync pair action
-def update_template(upd:TemplateUpdate,session:Session,role:str) -> None:
+def update_template(upd:TemplateUpdate, session:Session, role:str, aws_auth:str='role', sso_config:Optional[dict]=None, idp_id:str=None, sp_id:str=None) -> None:
     try:
-        assume_sess, _ = get_assumed_session(session, (upd.aws_id, upd.region), role)
-        install_access_template(assume_sess, upd.aws_id, upd.region, upd.template, upd.stack)
-        safe_print(f'✅ Updated environment: {upd.aws_id}/{upd.region}')            
+        if aws_auth == 'sso':
+            target_session = get_sso_session(upd.aws_id, upd.region, sso_config, idp_id, sp_id)
+        else:
+            target_session, _ = get_assumed_session(session, (upd.aws_id, upd.region), role)
+        install_access_template(target_session, upd.aws_id, upd.region, upd.template, upd.stack)
+        safe_print(f'✅ Updated environment: {upd.aws_id}/{upd.region}')
     except Exception as e:
         safe_print(f'❌ Failed to update {upd.aws_id}/{upd.region} environment template:{e}')
 
@@ -341,6 +434,14 @@ def main():
                         help='Max number of sync pairs to update in parallel (default: 20)')
     parser.add_argument('--proxy', help='Flag to indicate the usage of a proxy server. Proxy server must be kept in standard environment variables for autodetection to work.', action='store_true', default=False)
     parser.add_argument('-n', '--debug-network', help='Flag to enable HTTP/S Network Debugging flagging', action='store_true', default=False)
+    parser.add_argument('--aws-auth', choices=['role', 'sso'], default='role',
+                        help='AWS authentication method: "role" (assume role from current session) or "sso" (Google SSO)')
+    parser.add_argument('--sso-config',
+                        help='Path to JSON file mapping AWS account IDs to IAM role names for SSO authentication')
+    parser.add_argument('--idp-id',
+                        help='Google Identity Provider ID for SSO authentication (required for SSO)')
+    parser.add_argument('--sp-id',
+                        help='Google Service Provider ID for SSO authentication (required for SSO)')
     args = parser.parse_args()
 
     setup_handler(args.debug_network, args.proxy)
@@ -370,13 +471,38 @@ def main():
             print(f"{e}")
             exit(1)
     else:
-        print(f'Missing arguments for authentication type. Please check your arguments and try again.')    
-        exit(1)    
+        print(f'Missing arguments for authentication type. Please check your arguments and try again.')
+        exit(1)
 
     check_version()
 
+    # Load SSO config if using SSO authentication
+    sso_config = None
+    idp_id = args.idp_id
+    sp_id = args.sp_id
     role_name = args.role_name
-    safe_print('Using '+role_name+' for AWS IAM Role\n')
+    aws_auth = args.aws_auth
+
+    if aws_auth == 'sso':
+        if not args.sso_config:
+            print('❌ --sso-config is required when using --aws-auth sso')
+            exit(1)
+        if not idp_id or not sp_id:
+            print('❌ --idp-id and --sp-id are required when using --aws-auth sso')
+            exit(1)
+        try:
+            with open(args.sso_config, 'r') as f:
+                sso_config = json.load(f)
+            safe_print(f'✅ Loaded SSO config with {len(sso_config)} account mappings')
+            safe_print('Using Google SSO for AWS authentication\n')
+        except FileNotFoundError:
+            print(f'❌ SSO config file not found: {args.sso_config}')
+            exit(1)
+        except json.JSONDecodeError as e:
+            print(f'❌ Invalid JSON in SSO config file: {e}')
+            exit(1)
+    else:
+        safe_print('Using '+role_name+' for AWS IAM Role\n')
 
     max_workers = args.max_workers
 
@@ -397,16 +523,24 @@ def main():
         print(f'\n❌ Exception Caught: {e} \n')
 
 
-    max_workers = min(max_workers, len(template_updates)) ##recalculate thread pool for non-duplicate sync pair tuples 
+    max_workers = min(max_workers, len(template_updates)) ##recalculate thread pool for non-duplicate sync pair tuples
 
     print(f'\n🔍 Found {len(template_updates)} templates to upgrade. Starting parallel updates with {max_workers} workers...\n')
     if max_workers == 0:
         print(f'\n✅ No templates to upgrade, exiting...\n')
         exit(0)
 
+    # Pre-authenticate all accounts via SSO before parallel updates
+    if aws_auth == 'sso':
+        try:
+            pre_authenticate_sso(template_updates, sso_config, idp_id, sp_id)
+        except Exception as e:
+            print(f'\n❌ SSO pre-authentication failed: {e}')
+            exit(1)
+
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(update_template, template, session, role_name) for template in template_updates]
+            futures = [executor.submit(update_template, template, session, role_name, aws_auth, sso_config, idp_id, sp_id) for template in template_updates]
 
             for _ in as_completed(futures):
                 pass
