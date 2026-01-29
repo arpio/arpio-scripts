@@ -272,16 +272,59 @@ python3 cfn-template-update.py -a <arpio-account-id> -t api
 - `-u, --username`: Arpio username (for token auth)
 - `-p, --password`: Arpio password (for token auth)
 - `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
-- `-r, --role-name`: IAM role to assume in each account (default: `OrganizationAccountAccessRole`)
 - `-w, --max-workers`: Max parallel workers (default: 20)
 - `--proxy`: Enable proxy support
 - `-n, --debug-network`: Enable HTTP/S network debugging
+- `--aws-auth`: AWS authentication method: `role` (default) or `sso`
+- `-r, --role-name`: IAM role to assume in each account (default: `OrganizationAccountAccessRole`) (required for role-based auth)
+- `--sso-config`: Path to JSON file mapping AWS account IDs to IAM role names (required for SSO)
+- `--idp-id`: Google Identity Provider ID (required for SSO)
+- `--sp-id`: Google Service Provider ID (required for SSO)
 
 ### Environment Variables
 
 - `ARPIO_API_KEY`: API key for authentication
 - `ARPIO_USERNAME`: Username for token authentication
 - `ARPIO_PASSWORD`: Password for token authentication
+
+### Using Google SSO for AWS Authentication
+
+If you access AWS accounts via Google SSO with different IAM roles per account, use the `--aws-auth sso` option.
+
+#### Prerequisites
+
+```bash
+npm install --global gsts @playwright/test
+npx playwright install
+```
+
+#### SSO Config File
+
+Create a JSON file mapping AWS account IDs to their IAM role names:
+
+```json
+{
+  "123456789012": "my-admin-role",
+  "987654321098": "other-admin-role"
+}
+```
+
+#### Usage
+
+```bash
+python3 cfn-template-update.py \
+  -a <arpio-account-id> \
+  -t api \
+  -k <api-key> \
+  --aws-auth sso \
+  --sso-config sso-roles.json \
+  --idp-id <your-google-idp-id> \
+  --sp-id <your-google-sp-id>
+```
+
+You can find your Google IDP ID and SP ID in your Google Workspace SAML application configuration for AWS.
+
+The script will open a browser for Google authentication once per AWS account.
 
 ---
 
