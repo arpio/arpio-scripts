@@ -341,14 +341,14 @@ python3 onboard.py \
 
 # Using environment variables
 export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
-python3 onboard.py --csv applications.csv -a <arpio-account-id> -auth api
+python3 onboard.py --csv applications.csv -a <arpio-account-id> --auth-type api
 ```
 
 ### Options
 
 - `--csv`: Path to input CSV file (required)
 - `-a, --arpio-account`: Arpio account ID (required)
-- `-t, --auth-type, --auth-type`: Authentication type: `api` or `token` (required)
+- `-t, --auth-type`: Authentication type: `api` or `token` (required)
 - `-u, --username`: Arpio username (for token auth)
 - `-p, --password`: Arpio password (for token auth)
 - `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
