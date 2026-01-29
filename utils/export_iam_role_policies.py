@@ -58,15 +58,12 @@ def get_role_policies(iam_client, role_name):
         }
         
         # Get policy document for customer managed and some AWS managed policies
-        if policy_arn.startswith('arn:aws:iam::aws:policy/ReadOnlyAccess'):
-            policy_info['note'] = 'This is an AWS managed policy with extensive read permissions across all AWS services. The full policy document is very large (truncated in output).'
-        else:
-            version_id = policy_details['DefaultVersionId']
-            policy_version = iam_client.get_policy_version(
-                PolicyArn=policy_arn,
-                VersionId=version_id
-            )['PolicyVersion']
-            policy_info['policy_document'] = policy_version['Document']
+        version_id = policy_details['DefaultVersionId']
+        policy_version = iam_client.get_policy_version(
+            PolicyArn=policy_arn,
+            VersionId=version_id
+        )['PolicyVersion']
+        policy_info['policy_document'] = policy_version['Document']
         
         result['attached_managed_policies'].append(policy_info)
     
