@@ -177,6 +177,9 @@ def load_csv_data(csv_path):
 def parse_tag_rules(tag_string:str) -> list[dict]:
     # parses a string of the form "key=value something=else and-a-third=true" and 
     # returns a list of dictionaries where ([key,value][something,else]])
+    if tag_string == '':
+        return [build_tag_selection_rule('arpio-protected', 'true')]
+    
     tag_rules = []
     split_tags = tag_string.split()
     for tagpair in split_tags:
