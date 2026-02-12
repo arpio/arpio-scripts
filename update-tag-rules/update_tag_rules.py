@@ -207,6 +207,36 @@ def rules_match(current_rules, desired_rules):
     return True
 
 
+def format_rules(rules):
+    """Format a list of selection rules into a readable string.
+
+    Examples:
+        []                                          -> '(none)'
+        [{"ruleType":"tag","name":"k","value":"v"}] -> 'tag: k=v'
+        [{"ruleType":"arn","arns":["arn:aws:..."]}] -> 'arn: arn:aws:...'
+        Multiple rules                              -> 'tag: k1=v1, tag: k2=v2'
+    """
+    if not rules:
+        return '(none)'
+
+    parts = []
+    for rule in rules:
+        rule_type = rule.get('ruleType', '?')
+        if rule_type == 'tag':
+            name = rule.get('name', '')
+            value = rule.get('value', '')
+            parts.append(f"tag: {name}={value}" if value else f"tag: {name}")
+        elif rule_type == 'arn':
+            arns = rule.get('arns', [])
+            if len(arns) <= 2:
+                parts.append(f"arn: {', '.join(arns)}")
+            else:
+                parts.append(f"arn: {arns[0]} (+{len(arns) - 1} more)")
+        else:
+            parts.append(f"{rule_type}: {json.dumps(rule)}")
+    return ', '.join(parts)
+
+
 # --------------- Main ---------------
 
 def main():
@@ -228,6 +258,8 @@ def main():
                         help='Tag value to set (default: true)')
     parser.add_argument('--dry-run', action='store_true',
                         help='List applications and show what would change without making updates')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Show current and new tag rules for each application')
     args = parser.parse_args()
 
     account_id = args.arpio_account
@@ -276,8 +308,9 @@ def main():
             continue
 
         print(f"  {'WOULD UPDATE' if args.dry_run else 'UPDATE'}  {app_name} (appId={app_id})")
-        print(f"          current rules: {json.dumps(current_rules)}")
-        print(f"          new rules    : {json.dumps(new_rule)}")
+        if args.verbose:
+            print(f"          current: {format_rules(current_rules)}")
+            print(f"          new    : {format_rules(new_rule)}")
 
         if args.dry_run:
             updated += 1
