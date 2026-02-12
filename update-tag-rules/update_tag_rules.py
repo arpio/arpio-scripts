@@ -159,10 +159,26 @@ def get_applications(account_id, auth_header):
     return json.loads(body.decode())
 
 
-def update_application_tag_rules(account_id, app_id, selection_rules, auth_header):
-    """PUT /api/accounts/{account_id}/applications/{app_id} with new selectionRules."""
+def update_application_tag_rules(account_id, app, selection_rules, auth_header):
+    """PUT /api/accounts/{account_id}/applications/{app_id} with new selectionRules.
+
+    The PUT endpoint requires the full application object, so we copy the existing
+    app data and replace selectionRules. Null values in restoreConfig are defaulted
+    to False to satisfy API validation.
+    """
+    app_id = app['appId']
     url = build_arpio_url('accounts', account_id, 'applications', app_id)
-    payload = {'selectionRules': selection_rules}
+
+    payload = dict(app)
+    payload['selectionRules'] = selection_rules
+
+    # The API rejects null values for restoreConfig fields — default them to False
+    restore_config = payload.get('restoreConfig') or {}
+    for field in ('enableQuarantine', 'enableMalwareScan'):
+        if restore_config.get(field) is None:
+            restore_config[field] = False
+    payload['restoreConfig'] = restore_config
+
     body, code, _ = http_put(url, data=payload,
                              headers=(auth_header | {'Content-Type': 'application/json'}))
     return body, code
@@ -174,6 +190,21 @@ def build_tag_selection_rule(tag_key, tag_value=None):
         "name": tag_key,
         "value": tag_value
     }
+
+
+def rules_match(current_rules, desired_rules):
+    """Compare selection rules ignoring server-added fields like 'action' and 'operator'.
+
+    The API returns extra fields (action, operator) on stored rules that aren't part
+    of the user-specified rule, so we compare only ruleType, name, and value.
+    """
+    if len(current_rules) != len(desired_rules):
+        return False
+    for current, desired in zip(current_rules, desired_rules):
+        for key in ('ruleType', 'name', 'value'):
+            if current.get(key) != desired.get(key):
+                return False
+    return True
 
 
 # --------------- Main ---------------
@@ -236,15 +267,15 @@ def main():
 
     for app in applications:
         app_name = app.get('name', '(unnamed)')
-        app_id = app.get('id')
+        app_id = app.get('appId')
         current_rules = app.get('selectionRules', [])
 
-        if current_rules == new_rule:
-            print(f"  SKIP  {app_name} (id={app_id}) — already has the target tag rule")
+        if rules_match(current_rules, new_rule):
+            print(f"  SKIP  {app_name} (appId={app_id}) — already has the target tag rule")
             skipped += 1
             continue
 
-        print(f"  {'WOULD UPDATE' if args.dry_run else 'UPDATE'}  {app_name} (id={app_id})")
+        print(f"  {'WOULD UPDATE' if args.dry_run else 'UPDATE'}  {app_name} (appId={app_id})")
         print(f"          current rules: {json.dumps(current_rules)}")
         print(f"          new rules    : {json.dumps(new_rule)}")
 
@@ -252,7 +283,7 @@ def main():
             updated += 1
             continue
 
-        body, code = update_application_tag_rules(account_id, app_id, new_rule, auth_header)
+        body, code = update_application_tag_rules(account_id, app, new_rule, auth_header)
         if code in {200, 204}:
             print(f"          ✅ Updated successfully")
             updated += 1
