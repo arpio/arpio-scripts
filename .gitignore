@@ -28,3 +28,6 @@ conda-meta/
 *.iml
 .DS_Store
 acct-creation-script/*.csv
+
+__pycache__/
+*.pyc
