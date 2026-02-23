@@ -217,8 +217,9 @@ def query_environments(arpio_auth_header, arpio_account:str)->List[SyncPair]:
         raise Exception(f'Failed to query applications: {body.decode()}')
     applications = json.loads(body)
 
+    # Skip applications where sourceAwsAccountId is null - These are Azure applications - TODO: we should handle these.
     return [SyncPair(app['sourceAwsAccountId'], app['sourceRegion'], app['targetAwsAccountId'], 
-                                                       app['targetRegion']) for app in applications]
+                     app['targetRegion']) for app in applications if app['sourceAwsAccountId'] is not None]
 
 
 def needs_template_update(arpio_auth_header, arpio_account, sync_pair:SyncPair, stack_name: str) -> List[TemplateUpdate]:
@@ -520,7 +521,7 @@ def main():
             for f in as_completed(futures):
                 template_updates.update(f.result())
     except Exception as e:
-        print(f'\n❌ Exception Caught: {e} \n')
+        print(f'\n❌ Exception Caught during template updates: {e} \n')
 
 
     max_workers = min(max_workers, len(template_updates)) ##recalculate thread pool for non-duplicate sync pair tuples
@@ -545,7 +546,7 @@ def main():
             for _ in as_completed(futures):
                 pass
     except Exception as e:
-        print(f'\n❌ Exception Caught: {e} \n')
+        print(f'\n❌ Exception Caught during authentication: {e} \n')
 
 
 
