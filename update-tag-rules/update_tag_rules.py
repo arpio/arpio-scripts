@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
-# Copyright 2025 Arpio, Inc.
+# Copyright 2026 Arpio, Inc.
 
-# This script updates the tag selection rules for every application in an Arpio account,
+# This script DESTRUCTIVELY REPLACES the tag selection rules for every application in an Arpio account,
 # setting them to arpio-protected:true.
+#
+# WARNING: This will overwrite any existing selection rules on all applications in the account. Use with caution!
 #
 # Supports two authentication methods:
 #   - API Key: Pass via --api-key or set the ARPIO_API_KEY environment variable
 #   - Token (username/password): Pass via --username/--password or set ARPIO_USERNAME/ARPIO_PASSWORD
 #
 # Usage examples:
-#   python update_tag_rules.py -a <account-id> -t api -k "<keyId>:<secret>"
+#   python update_tag_rules.py -a <account-id> -t api -k <api-key-id>:<api-key-secret>
 #   python update_tag_rules.py -a <account-id> -t token -u user@example.com -p password
 #   ARPIO_API_KEY="keyId:secret" python update_tag_rules.py -a <account-id> -t api
 #
 # By default, sets the tag rule to arpio-protected=true. Override with --tag-key / --tag-value.
+# If neither is provided, prompts the user to continue with defaults or exit.
+# If an application already has tag rules that differ, the script will prompt for
+# confirmation before overwriting. Use -f / --force to bypass the prompt.
 
 import json
 import os
@@ -252,23 +257,38 @@ def main():
                         help='Arpio username (email)')
     parser.add_argument('-p', '--password',
                         help='Arpio password')
-    parser.add_argument('--tag-key', default='arpio-protected',
-                        help='Tag key to set (default: arpio-protected)')
-    parser.add_argument('--tag-value', default='true',
-                        help='Tag value to set (default: true)')
+    parser.add_argument('--tag-key',
+                        help='Tag key to set')
+    parser.add_argument('--tag-value',
+                        help='Tag value to set')
     parser.add_argument('--dry-run', action='store_true',
                         help='List applications and show what would change without making updates')
+    parser.add_argument('-f', '--force', action='store_true',
+                        help='Skip confirmation prompt when overwriting existing tag rules')
     parser.add_argument('-v', '--verbose', action='store_true',
                         help='Show current and new tag rules for each application')
     args = parser.parse_args()
 
+    if not args.tag_key and not args.tag_value:
+        print("No tag-key or tag-value provided.")
+        try:
+            answer = input("Continue with defaults (arpio-protected=true)? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            sys.exit(1)
+        if answer not in ('y', 'yes'):
+            print("No changes provided. Exiting.")
+            sys.exit(0)
+
     account_id = args.arpio_account
-    new_rule = [build_tag_selection_rule(args.tag_key, args.tag_value)]
+    tag_key = args.tag_key or 'arpio-protected'
+    tag_value = args.tag_value or 'true'
+    new_rule = [build_tag_selection_rule(tag_key, tag_value)]
 
     print("=== Arpio Tag Rule Updater ===")
     print(f"API root : {ARPIO_API_ROOT}")
     print(f"Account  : {account_id}")
-    print(f"Tag rule : {args.tag_key}={args.tag_value}")
+    print(f"Tag rule : {tag_key}={tag_value}")
     if args.dry_run:
         print("Mode     : DRY RUN (no changes will be made)")
     print()
@@ -308,13 +328,24 @@ def main():
             continue
 
         print(f"  {'WOULD UPDATE' if args.dry_run else 'UPDATE'}  {app_name} (appId={app_id})")
-        if args.verbose:
+        if args.verbose or current_rules:
             print(f"          current: {format_rules(current_rules)}")
             print(f"          new    : {format_rules(new_rule)}")
 
         if args.dry_run:
             updated += 1
             continue
+
+        if current_rules and not args.force:
+            try:
+                answer = input(f"  Overwrite existing rules for {app_name}? [y/N] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.")
+                sys.exit(1)
+            if answer not in ('y', 'yes'):
+                print(f"          Skipped (user declined)")
+                skipped += 1
+                continue
 
         body, code = update_application_tag_rules(account_id, app, new_rule, auth_header)
         if code in {200, 204}:
