@@ -29,7 +29,6 @@ conda-meta/
 .DS_Store
 acct-creation-script/*.csv
 
-<<<<<<< HEAD
 __pycache__/
 *.pyc
 
@@ -37,7 +36,3 @@ __pycache__/
 
 # Arpio-specific files
 sso-roles-digitata.json
-=======
-.vscode
-__pycache__
->>>>>>> tag-rule-detect-update
