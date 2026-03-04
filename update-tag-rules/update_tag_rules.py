@@ -237,6 +237,10 @@ def format_rules(rules):
                 parts.append(f"arn: {', '.join(arns)}")
             else:
                 parts.append(f"arn: {arns[0]} (+{len(arns) - 1} more)")
+        elif rule_type == 'resourceGroup':
+            rg = rule.get('resourceGroup', '')
+            action = rule.get('action', 'include')
+            parts.append(f"resourceGroup: {rg} ({action})")
         else:
             parts.append(f"{rule_type}: {json.dumps(rule)}")
     return ', '.join(parts)
