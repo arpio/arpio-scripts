@@ -348,8 +348,12 @@ def create_application(row, arpio_account, arpio_auth_header):
 
     ##check if application exists via name and skip if so
     body, code, _ = http_get(build_arpio_url('accounts', arpio_account, 'applications'), headers=arpio_auth_header)
+    applications = json.loads(body)
 
-    if str(application_name) in body.decode():
+    # Skip applications where sourceAwsAccountId is null - These are Azure applications - TODO: we should handle these.
+    existing_application_names = [app['name'] for app in applications if app['sourceAwsAccountId'] is not None]
+
+    if application_name in existing_application_names:
         print(f'Arpio Application with this name already exists, skipping creation...')
         return row
     else:
