@@ -326,6 +326,14 @@ def main():
         app_id = app.get('appId')
         current_rules = app.get('selectionRules', [])
 
+        # Skip Azure applications. The applications endpoint returns a 'type'
+        # field ('aws' or 'azure'); Azure apps use a different selection-rule
+        # schema (resourceGroup / azure ARNs) and must not be overwritten here.
+        if app.get('type') == 'azure':
+            print(f"  SKIP  {app_name} (appId={app_id}) — Azure application")
+            skipped += 1
+            continue
+
         if rules_match(current_rules, new_rule):
             print(f"  SKIP  {app_name} (appId={app_id}) — already has the target tag rule")
             skipped += 1
