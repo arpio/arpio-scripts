@@ -342,7 +342,8 @@ def pre_authenticate_sso(template_updates, sso_config: Optional[dict], idp_id: s
         try:
             role_name = sso_config.get(account_id)
             if not role_name:
-                raise Exception(f'No SSO role mapping found for account {account_id} in config')
+                safe_print(f'⚠️ No SSO role mapping for account {account_id} in config, skipping')
+                continue
             role_arn = f'arn:aws:iam::{account_id}:role/{role_name}'
 
             with _sso_cache_lock:
@@ -523,6 +524,13 @@ def main():
     except Exception as e:
         print(f'\n❌ Exception Caught during template updates: {e} \n')
 
+
+    # Filter out accounts with no SSO role mapping before updating
+    if aws_auth == 'sso':
+        skipped = {upd for upd in template_updates if upd.aws_id not in sso_config}
+        for upd in skipped:
+            safe_print(f'⚠️ Skipping {upd.aws_id}/{upd.region} — no SSO role mapping in config')
+        template_updates -= skipped
 
     max_workers = min(max_workers, len(template_updates)) ##recalculate thread pool for non-duplicate sync pair tuples
 
