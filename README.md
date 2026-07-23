@@ -45,7 +45,11 @@ Retrieves Arpio audit events for a specified account within a given time frame.
 
 ### Setup
 
+Run these commands from the folder that the GitHub repo was downloaded into:
+
 ```bash
+cd ./arpio-scripts
+
 # Create virtual environment
 python3 -m venv venv
 
@@ -100,7 +104,11 @@ Authenticates to an Arpio account and creates a non-interactive API key.
 
 ### Setup
 
+Run these commands from the folder that the GitHub repo was downloaded into:
+
 ```bash
+cd ./arpio-scripts
+
 # Create virtual environment
 python3 -m venv venv
 
@@ -151,7 +159,11 @@ Two scripts work together to automate ACM certificate provisioning for missing c
 
 ### Setup
 
+Run these commands from the folder that the GitHub repo was downloaded into:
+
 ```bash
+cd ./arpio-scripts
+
 # Create virtual environment
 python3 -m venv venv
 
@@ -169,39 +181,66 @@ pip install -r requirements.txt
 
 Queries Arpio for missing certificate issues and requests DNS-validated certificates via ACM.
 
+#### Authentication
+
+Like the other scripts in this repo, `provision_certs.py` supports two ways to authenticate to the Arpio API:
+
+- **API key** (`-t api`): pass the key via `-k/--api-key` or the `ARPIO_API_KEY` environment variable.
+- **Token** (`-t token`, the default): pass `-u/--username` and `-p/--password`, or set `ARPIO_USERNAME` / `ARPIO_PASSWORD`. Any missing credentials are prompted for interactively.
+
+```bash
+# API key authentication
+python3 provision_certs.py \
+  -a <arpio-account-id> \
+  -t api \
+  -k <api-key-id>:<api-key-secret> \
+  -o dns_entries.json
+
+# API key via environment variable
+export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
+
+# Call the script with API key authentication
+python3 provision_certs.py \
+  -a <arpio-account-id> \
+  -t api \
+  -o dns_entries.json
+
+# Token (username/password) authentication
+python3 provision_certs.py \
+  -a <arpio-account-id> \
+  -t token \
+  -u <username> \
+  -p <password> \
+  -o dns_entries.json
+
+# Interactive mode (will prompt for any missing credentials)
+python3 provision_certs.py
+
+# Dry run (test without making changes)
+python3 provision_certs.py --dry-run
+```
+
 #### SSO Configuration
 
-If your Arpio account uses SSO, you have two options:
+If your Arpio account uses SSO, token authentication can target your identity provider in one of two ways:
 
 1. Set the `auth_url` variable at the top of the script:
    ```python
    auth_url = "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id"
    ```
 
-2. Use the `--auth-url` flag when running the script
+2. Use the `--auth-url` flag when running the script:
+   ```bash
+   python3 provision_certs.py \
+     -a <arpio-account-id> \
+     -t token \
+     -u <username> \
+     -p <password> \
+     --auth-url "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id" \
+     -o dns_entries.json
+   ```
 
-```bash
-# Interactive mode (will prompt for credentials)
-python3 provision_certs.py
-
-# With parameters
-python3 provision_certs.py \
-  -a <arpio-account-id> \
-  -u <username> \
-  -p <password> \
-  -o dns_entries.json
-
-# With SSO authentication URL
-python3 provision_certs.py \
-  -a <arpio-account-id> \
-  -u <username> \
-  -p <password> \
-  --auth-url "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id" \
-  -o dns_entries.json
-
-# Dry run (test without making changes)
-python3 provision_certs.py --dry-run
-```
+API key authentication does not require the auth URL.
 
 ### Step 2: Create DNS Validation Entries (`create_validation_dns_entries.py`)
 
@@ -219,15 +258,21 @@ python3 create_validation_dns_entries.py -f dns_entries.json --dry-run
 
 **`provision_certs.py`:**
 - `-a, --arpio-account`: Arpio account ID
-- `-u, --username`: Arpio username
-- `-p, --password`: Arpio password
+- `-t, --auth-type`: Authentication type: `api` or `token` (default: `token`)
+- `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
+- `-u, --username`: Arpio username (for token auth)
+- `-p, --password`: Arpio password (for token auth)
 - `-o, --outfile`: Output file for DNS entries (default: print to console)
 - `-d, --dry-run`: Test mode, don't create certificates
-- `--auth-url`: SSO identity provider authentication URL (format: `https://api.arpio.io/api/auth/authenticate?identityProviderId=<your-id>`)
+- `--auth-url`: SSO identity provider authentication URL for token auth (format: `https://api.arpio.io/api/auth/authenticate?identityProviderId=<your-id>`)
+
+Environment variables: `ARPIO_API_KEY`, `ARPIO_USERNAME`, `ARPIO_PASSWORD`, and `ARPIO_API` (override API root URL).
 
 **`create_validation_dns_entries.py`:**
 - `-f, --entry-file`: Input JSON file from provision_certs.py
 - `-d, --dry-run`: Test mode, don't create DNS entries
+
+> Note: `create_validation_dns_entries.py` only talks to AWS (STS and Route53) and does not call the Arpio API, so it requires no Arpio authentication.
 
 ---
 
@@ -246,6 +291,8 @@ pip install boto3>=1.26.30
 
 ### Usage
 
+Run these commands from the folder that the GitHub repo was downloaded into (or from AWS CloudShell, where the repo has been cloned):
+
 ```bash
 # Using API key authentication
 python3 cfn-template-update.py \
@@ -262,7 +309,9 @@ python3 cfn-template-update.py \
 
 # Using environment variables
 export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
-python3 cfn-template-update.py -a <arpio-account-id> -t api
+python3 cfn-template-update.py \
+  -a <arpio-account-id> \
+  -t api
 ```
 
 ### Options
@@ -275,8 +324,9 @@ python3 cfn-template-update.py -a <arpio-account-id> -t api
 - `-w, --max-workers`: Max parallel workers (default: 20)
 - `--proxy`: Enable proxy support
 - `-n, --debug-network`: Enable HTTP/S network debugging
+- `-s, --stack-name`: CloudFormation stack name to create if it doesn't exist (default: `arpio-access`)
 - `--aws-auth`: AWS authentication method: `role` (default) or `sso`
-- `-r, --role-name`: IAM role to assume in each account (default: `OrganizationAccountAccessRole`) (required for role-based auth)
+- `-r, --role-name`: IAM role to assume in each account for role-based auth (default: `OrganizationAccountAccessRole`)
 - `--sso-config`: Path to JSON file mapping AWS account IDs to IAM role names (required for SSO)
 - `--idp-id`: Google Identity Provider ID (required for SSO)
 - `--sp-id`: Google Service Provider ID (required for SSO)
@@ -366,6 +416,8 @@ primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,appl
 
 ### Usage
 
+Run these commands from the folder that the GitHub repo was downloaded into (or from AWS CloudShell, where the repo has been cloned):
+
 ```bash
 # Using API key authentication
 python3 onboard.py \
@@ -378,18 +430,21 @@ python3 onboard.py \
 python3 onboard.py \
   --csv applications.csv \
   -a <arpio-account-id> \
-  --auth-type token \
+  -t <auth_type> (api or token)  \
   -u <username> \
   -p <password>
 
 # Using environment variables
 export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
-python3 onboard.py --csv applications.csv -a <arpio-account-id> --auth-type api
+python3 onboard.py \
+  --csv applications.csv \
+  -a <arpio-account-id> \
+  -t api
 ```
 
 ### Options
 
-- `--csv`: Path to input CSV file (required)
+- `-c, --csv`: Path to input CSV file (required)
 - `-a, --arpio-account`: Arpio account ID (required)
 - `-t, --auth-type`: Authentication type: `api` or `token` (required)
 - `-u, --username`: Arpio username (for token auth)
