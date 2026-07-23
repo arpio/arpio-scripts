@@ -23,9 +23,16 @@
 # To test the script, specify the --dry-run flag
 
 from collections import defaultdict
-import argparse
+from datetime import datetime
 import json
+import os
+import random
+import string
+import time
+import requests
+import click
 from boto3.session import Session
+from botocore.exceptions import ClientError
 
 
 def normalize_dns_name(dns_name):
@@ -107,18 +114,12 @@ def create_validation_entry(r53_client, zone_mapping, entry_name, entry_value, d
             else:
                 create_resource_record_set(r53_client, entry_name, entry_value, zone_id, dry_run)
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Create Route53 DNS validation entries from a provision_certs.py output file.')
-    parser.add_argument('-f', '--entry-file', required=True,
-                        help='DNS entry input file created by the provision_certs.py script')
-    parser.add_argument('-d', '--dry-run', action='store_true',
-                        help='Report what would be created without making changes')
-    args = parser.parse_args()
-
-    entry_file = args.entry_file
-    dry_run = args.dry_run
-
+# This script makes heavy use of click for command-line processing.
+# Details at https://palletsprojects.com/p/click/
+@click.command()
+@click.option('-f', '--entry-file', prompt='DNS entry input file created by the provision_certs.py script')
+@click.option('-d', '--dry-run', is_flag=True)
+def create_entries(entry_file, dry_run):
     # Validate that we have access to the AWS API, and identify the AWS account
     sts = Session().client('sts')
     account_id = get_account_id(sts)
@@ -136,5 +137,5 @@ def main():
         create_validation_entry(r53, zone_mapping, entry['Name'], entry['Value'], dry_run)
 
 if __name__ == '__main__':
-    main()
+    create_entries()
 

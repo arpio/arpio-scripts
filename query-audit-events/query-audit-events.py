@@ -1,20 +1,16 @@
-#!/usr/bin/env python3
-import argparse
+#!/usr/bin/env python
 import json
 import os
 import sys
 from datetime import timezone
 from urllib.parse import urlencode
 
+import click
 import urllib3
 from dateutil.parser import DEFAULTPARSER, ParserError
 
-# Import the shared Arpio authentication helpers from the sibling utils/ directory.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
-import arpio_auth
 
-
-def parse_time_arg(value, arg_name):
+def parse_time_arg(value: str | None, arg_name: str) -> str:
     """
     Parse a time argument given on the command line and return it as an
     ISO 8601 string to send to the API.  The input value may contain
@@ -28,7 +24,7 @@ def parse_time_arg(value, arg_name):
     try:
         dt = DEFAULTPARSER.parse(value)
     except ParserError as e:
-        raise SystemExit(f'Invalid value for the {arg_name} argument: {e}')
+        raise click.BadArgumentUsage(f'Invalid value for the {arg_name} argument: {e}')
 
     # Convert to UTC if needed.
     if not dt.utcoffset() or dt.utcoffset().total_seconds() != 0:
@@ -37,51 +33,50 @@ def parse_time_arg(value, arg_name):
     return dt.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
 
-def main():
+@click.command()
+@click.argument('account-id')
+@click.argument('start', required=False)
+@click.argument('end', required=False)
+@click.option('--api-hostname', default='api.arpio.io')
+@click.option('--trace', is_flag=True, help='Print audit event query URLs to stderr as they are fetched')
+def cli(account_id: str, start: str | None, end: str | None, api_hostname: str, trace: bool = False):
     """
     Retrieves Arpio audit events for the specified account that match the
     specified time frame.  Audit events are printed to stdout in JSON lines
     (JSONL) format.
 
-    By default this authenticates with an API key (``-t api``), taken from
-    ``-k/--api-key`` or the ARPIO_API_KEY environment variable; pass
-    ``-t token`` to authenticate with a username/password instead.
+    Uses the Arpio API key defined in the ARPIO_API_KEY environment variable
+    to authenticate to the Arpio API.
 
     START and END times may be specified using any date format supported
     by your Python interpreter and operating system.  If either of START
     or END is not specified, the search is unconstrained on those ends.
 
-    Dates in ISO 8601 format with microsecond precision are supported, e.g.
-    2025-07-23T19:55:10.001002Z.  Less precision may be used for convenience,
-    e.g. 2025-07-23 (start of day in local time zone) or 2025-07-23T00:00Z
-    (start of UTC day).  If no time zone is present, the system's local time
-    zone is used.
+    Dates in ISO 8601 format with microsecond precision are supported.
+    An example with UTC time zone:
+
+        2025-07-23T19:55:10.001002Z
+
+    Less precision may be used for convenience:
+
+        2025-07-23              (start of day in local time zone)
+
+        2025-07-23T19:55        (19:55 in local time zone)
+
+        2025-07-23T19:55-4      (19:55 in the UTC - 4 time zone)
+
+        2025-07-23T00:00Z       (start of UTC day)
+
+    If no time zone is present in a time string, the system's local time zone
+    is used
     """
-    parser = argparse.ArgumentParser(
-        description='Retrieve Arpio audit events for an account as JSON lines (JSONL).')
-    arpio_auth.add_arpio_auth_args(parser, default_auth_type='api')
-    parser.add_argument('start', nargs='?',
-                        help='Start time (inclusive); any recognizable date/time format')
-    parser.add_argument('end', nargs='?',
-                        help='End time (exclusive); any recognizable date/time format')
-    parser.add_argument('--trace', action='store_true',
-                        help='Print audit event query URLs to stderr as they are fetched')
-    args = parser.parse_args()
-
-    account_id = args.arpio_account
-    start = args.start
-    end = args.end
-    trace = args.trace
-
-    try:
-        auth = arpio_auth.resolve_auth(args)
-    except Exception as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(1)
+    api_key = os.environ.get('ARPIO_API_KEY')
+    if not api_key:
+        raise click.UsageError('ARPIO_API_KEY environment variable is not set')
 
     http = urllib3.PoolManager()
-    audit_events_url = arpio_auth.build_arpio_url('accounts', account_id, 'auditEvents')
-    headers = arpio_auth.auth_headers(auth)
+    audit_events_url = f'https://{api_hostname}/api/accounts/{account_id}/auditEvents'
+    headers = {'X-Api-Key': api_key}
     query_params = {}
     if start:
         query_params['timestampStart'] = parse_time_arg(start, 'start')
@@ -106,8 +101,7 @@ def main():
         resp = http.request('GET', page_url, headers=headers)
         if resp.status != 200:
             data_str = str(resp.data, 'utf-8')
-            print(f'Got error status {resp.status} {resp.reason} from {page_url}: {data_str}',
-                  file=sys.stderr)
+            click.echo(f'Got error status {resp.status} {resp.reason} from {page_url}: {data_str}', err=True)
             sys.exit(1)
 
         # Print the events, one JSON object per line.
@@ -122,4 +116,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    cli()

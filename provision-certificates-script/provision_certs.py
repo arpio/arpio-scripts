@@ -29,25 +29,25 @@
 auth_url = None
 
 from datetime import datetime
-import argparse
 import json
 import os
 import random
 import string
-import sys
 import time
 import requests
+import click
+import re
 from boto3.session import Session
 from botocore.exceptions import ClientError
-
-# Import the shared Arpio authentication helpers from the sibling utils/ directory.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
-import arpio_auth
+from urllib.parse import urlsplit, parse_qs, urljoin
 
 
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
+DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
+DEFAULT_ARPIO_USER = 'arpio-user-email'
 NO_FILE = 'none'
 
+ARPIO_TOKEN_COOKIE = 'ArpioSession'
 
 def build_arpio_url(*path_bits):
     """Built an Arpio API URL from a set of path bits"""
@@ -55,20 +55,85 @@ def build_arpio_url(*path_bits):
     url_bits.extend(path_bits)
     return '/'.join(url_bits)
 
+def get_arpio_token(account_id, username, password, auth_url):
+    """
+    Given a username and password, get an access token for calling the Arpio API.
+    This mirrors the UI flow in some pretty gnarly web requests.  Probably best to
+    never touch this function -- let the Arpio team deal with it.
+    """
+    """Check if URL matches the Arpio auth authenticate pattern."""
+
+    pattern = r'^https://api\.arpio\.io/api/auth/authenticate\?identityProviderId=[a-zA-Z0-9]+$'
+    if auth_url and not re.match(pattern, auth_url):
+        raise Exception('Provided Auth URL is invalid')
+
+    # Attempt to list the applications in an account 
+    list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
+    resp = requests.get(list_apps_url)
+    if resp.status_code != 401:
+        raise Exception('Expected 401 on unauthenticated GET operation')
+    
+    if auth_url is None:
+        auth_url = resp.json().get('authenticateUrl')
+        if not auth_url:
+            raise Exception("Didn't get an authentication URL in 401 reponse")
+        
+    if not auth_url:
+        raise Exception("Authentication URL not provided")
+
+    auth_url = urljoin(list_apps_url, auth_url)
+    auth_url_parts = urlsplit(auth_url)
+
+    # Start the auth flow
+    resp = requests.get(auth_url)
+    if resp.status_code != 200:
+        raise Exception(f'{resp.status_code} starting authentication flow')
+
+    # Get the auth token from the login URL
+    web_login_url = resp.json().get('loginUrl')
+    if not web_login_url:
+        raise Exception(f'No loginUrl in auth flow repsonse')
+
+    web_login_url_parts = urlsplit(web_login_url)
+    web_login_url_args = parse_qs(web_login_url_parts.query)
+    auth_token = web_login_url_args.get('authToken')
+    if not auth_token:
+        raise Exception(f'No authToken in auth URL: {web_login_url}')
+    auth_token = auth_token[0]
+
+    # Login at the native IDP
+    login_url = f'{auth_url_parts.scheme}://{auth_url_parts.netloc}/api/users/login'
+    resp = requests.post(login_url, json={'email':username, 'password': password})
+    if resp.status_code != 200:
+        raise Exception(f'Failed to login: {resp.content}')
+    
+    native_auth_token = resp.json().get('nativeAuthToken')
+    if not native_auth_token:
+        raise Exception(f'No nativeAuthToken in native IDP response: {resp.content}')
+    
+    # Finish the flow
+    native_acs_url = f'{auth_url_parts.scheme}://{auth_url_parts.netloc}/api/auth/nativeAcs'
+    resp = requests.post(native_acs_url, json={'authToken': auth_token, 'nativeAuthToken': native_auth_token})
+    if resp.status_code != 200:
+        raise Exception(f'Login at native IDP failed: {resp.content}')
+
+    token = resp.cookies[ARPIO_TOKEN_COOKIE]
+    return token
+
 def get_account_id(sts_client):
     resp = sts_client.get_caller_identity()
     return resp['Account']
 
-def list_applications(accountId, auth):
+def list_applications(accountId, token):
     applications_url = build_arpio_url('accounts', accountId, 'applications')
-    resp = requests.get(applications_url, **arpio_auth.auth_request_kwargs(auth))
+    resp = requests.get(applications_url, cookies={ARPIO_TOKEN_COOKIE: token})
     if resp.status_code != 200:
         raise Exception(f'Failed to list applications: {resp.content}')
     return resp.json()
 
-def list_missing_cert_issues(accountId, applicationId, auth):
+def list_missing_cert_issues(accountId, applicationId, token):
     issues_url = build_arpio_url('accounts', accountId, 'applications', applicationId, 'issues')
-    resp = requests.get(issues_url, **arpio_auth.auth_request_kwargs(auth))
+    resp = requests.get(issues_url, cookies={ARPIO_TOKEN_COOKIE: token})
     if resp.status_code != 200:
         raise Exception(f'Failed to list issues: {resp.content}')
     return [i['issue'] for i in resp.json() if i['issue']['type'] == 'acmCertificateNotFound']
@@ -134,38 +199,28 @@ def provision_cert(acm_client, _primary_account, _primary_region, recovery_accou
 
     
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Provision missing recovery-side ACM certificates for Arpio applications.')
-    arpio_auth.add_arpio_auth_args(parser)
-    parser.add_argument('-o', '--outfile', default=NO_FILE,
-                        help='File to write required DNS entries to as JSON '
-                             '(default: print to stdout)')
-    parser.add_argument('-d', '--dry-run', action='store_true',
-                        help='Report what would be provisioned without making changes')
-    parser.add_argument('--auth-url', default=auth_url,
-                        help='Explicit Arpio identity-provider authenticate URL '
-                             '(for SSO accounts, token auth only)')
-    args = parser.parse_args()
+# This script makes heavy use of click for command-line processing.
+# Details at https://palletsprojects.com/p/click/
+@click.command()
+@click.option('-a', '--arpio-account', prompt='Arpio account ID', default=DEFAULT_ARPIO_ACCOUNT, show_default=True)
+@click.option('-u', '--username', prompt='Arpio username', default=DEFAULT_ARPIO_USER, show_default=True)
+@click.option('-p', '--password', prompt='Arpio password', hide_input=True)
+@click.option('-o', '--outfile', prompt='DNS entry output file', default=NO_FILE, show_default=True)
+@click.option('-d', '--dry-run', is_flag=True)
+@click.option('--auth-url', default=auth_url, show_default=True, prompt_required=False )
 
-    arpio_account = args.arpio_account
-    dry_run = args.dry_run
-    outfile = args.outfile
+def provision(arpio_account, username, password, dry_run, outfile, auth_url):
 
-    # Resolve credentials to call the Arpio API
-    try:
-        auth = arpio_auth.resolve_auth(args, auth_url=args.auth_url)
-    except Exception as e:
-        print(f'{e}')
-        sys.exit(1)
+    # Get a token to call the Arpio API
+    token = get_arpio_token(arpio_account, username, password, auth_url)
 
     # Validate that we have access to the AWS API, and identify the AWS account
     sts = Session().client('sts')
     account_id = get_account_id(sts)
     print(f'Current AWS account is {account_id}.  Certs required in other accounts will be skipped.\n')
-
+    
     # Query for all defined applications
-    applications = list_applications(arpio_account, auth)
+    applications = list_applications(arpio_account, token)
 
     dns_entries = []
 
@@ -192,7 +247,7 @@ def main():
                            subject_name, subject_alternative_names, primary_cert_arn, dry_run)
             )
 
-    if outfile == NO_FILE:
+    if outfile is NO_FILE:
         print('\n========================== Required DNS Entries ==========================')
         if dry_run:
             print('None.  This is a dry run.')
@@ -208,7 +263,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    provision()
 
 
 
