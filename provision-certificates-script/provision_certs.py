@@ -276,6 +276,12 @@ def provision(arpio_account, auth_type, username, password, api_key, dry_run, ou
 
     # Iterate across all applications finding missing cert issues and provision them
     for app in applications:
+        # Skip Azure applications. The applications endpoint returns a 'type'
+        # field ('aws' or 'azure'); ACM cert provisioning only applies to AWS apps.
+        if app.get('type') == 'azure':
+            print(f"Skipping Azure application: {app.get('name')}")
+            continue
+
         primary_account = app['sourceAwsAccountId']
         primary_region = app['sourceRegion']
         recovery_account = app['targetAwsAccountId']
