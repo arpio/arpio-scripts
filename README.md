@@ -430,7 +430,7 @@ python3 onboard.py \
 python3 onboard.py \
   --csv applications.csv \
   -a <arpio-account-id> \
-  -t token \
+  -t <auth_type> (api or token)  \
   -u <username> \
   -p <password>
 
