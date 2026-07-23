@@ -56,7 +56,7 @@ source venv/bin/activate
 venv\Scripts\activate
 
 # Install dependencies
-pip install click python-dateutil urllib3
+pip install -r requirements.txt
 ```
 
 ### Usage
@@ -71,22 +71,33 @@ Basic usage:
 
 ```bash
 # Query all events for an account
-./query-audit-events.py <account-id>
+./query-audit-events.py -a <account-id>
 
 # Query events within a time range
-./query-audit-events.py <account-id> "2025-07-23" "2025-07-24"
+./query-audit-events.py -a <account-id> "2025-07-23" "2025-07-24"
 
 # Query with specific timestamps (UTC)
-./query-audit-events.py <account-id> "2025-07-23T19:55:10.001002Z" "2025-07-24T00:00:00Z"
+./query-audit-events.py -a <account-id> "2025-07-23T19:55:10.001002Z" "2025-07-24T00:00:00Z"
 
 # Use trace flag to see URLs being fetched
-./query-audit-events.py <account-id> --trace
+./query-audit-events.py -a <account-id> --trace
 ```
 
 ### Options
 
-- `--api-hostname`: Override default API hostname (default: `api.arpio.io`)
+This script uses the standard Arpio authentication arguments shared across the
+repo. It defaults to API-key authentication (`-t api`), reading the key from
+`-k/--api-key` or the `ARPIO_API_KEY` environment variable; pass `-t token` to
+authenticate with a username/password instead.
+
+- `-a, --arpio-account`: Arpio account ID (required)
+- `-t, --auth-type`: Authentication type: `api` or `token` (default: `api`)
+- `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (or set `ARPIO_API_KEY`)
+- `-u, --username` / `-p, --password`: credentials for token auth (or set `ARPIO_USERNAME` / `ARPIO_PASSWORD`)
 - `--trace`: Print audit event query URLs to stderr
+
+To target a non-default API host, set the `ARPIO_API` environment variable
+(e.g. `export ARPIO_API="https://api.example.com/api"`).
 
 ### Output
 
@@ -111,26 +122,36 @@ source venv/bin/activate
 venv\Scripts\activate
 
 # Install dependencies
-pip install click urllib3
+pip install -r requirements.txt
 ```
 
 ### Usage
 
 ```bash
-./create-api-key.py <account-id> <email>
+./create-api-key.py -a <account-id> -u <email>
 ```
 
 You'll be prompted for your password. The script will output the API key details, including the secret (which is only displayed once).
 
 ### Options
 
-- `--password`: Provide password via command line (not recommended for security)
-- `--api-hostname`: Override default API hostname (default: `api.arpio.io`)
+This script uses the standard Arpio authentication arguments shared across the
+repo. It defaults to token (username/password) authentication; pass `-t api`
+with an existing key to create another one.
+
+- `-a, --arpio-account`: Arpio account ID (required)
+- `-t, --auth-type`: Authentication type: `api` or `token` (default: `token`)
+- `-u, --username`: Arpio username/email (or set `ARPIO_USERNAME`)
+- `-p, --password`: Arpio password (or set `ARPIO_PASSWORD`); prompted if not provided
+- `-k, --api-key`: Arpio API key for `-t api` (or set `ARPIO_API_KEY`)
+
+To target a non-default API host, set the `ARPIO_API` environment variable
+(e.g. `export ARPIO_API="https://api.example.com/api"`).
 
 ### Example Output
 
 ```bash
-./create-api-key.py RQDLgR8ar2ipEV0VbfQLno user@example.com
+./create-api-key.py -a RQDLgR8ar2ipEV0VbfQLno -u user@example.com
 
 Created API key (the secret is only ever displayed ONE TIME, right here):
 {
@@ -169,39 +190,58 @@ pip install -r requirements.txt
 
 Queries Arpio for missing certificate issues and requests DNS-validated certificates via ACM.
 
+#### Authentication
+
+Like the other scripts in this repo, `provision_certs.py` supports two ways to authenticate to the Arpio API:
+
+- **API key** (`-t api`): pass the key via `-k/--api-key` or the `ARPIO_API_KEY` environment variable.
+- **Token** (`-t token`, the default): pass `-u/--username` and `-p/--password`, or set `ARPIO_USERNAME` / `ARPIO_PASSWORD`. Any missing credentials are prompted for interactively.
+
+```bash
+# API key authentication
+python3 provision_certs.py \
+  -a <arpio-account-id> \
+  -t api \
+  -k <api-key-id>:<api-key-secret> \
+  -o dns_entries.json
+
+# API key via environment variable
+export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
+python3 provision_certs.py -a <arpio-account-id> -t api -o dns_entries.json
+
+# Token (username/password) authentication
+python3 provision_certs.py \
+  -a <arpio-account-id> \
+  -t token \
+  -u <username> \
+  -p <password> \
+  -o dns_entries.json
+
+# Dry run (test without making changes)
+python3 provision_certs.py -a <arpio-account-id> -t api --dry-run
+```
+
 #### SSO Configuration
 
-If your Arpio account uses SSO, you have two options:
+If your Arpio account uses SSO, token authentication can target your identity provider in one of two ways:
 
 1. Set the `auth_url` variable at the top of the script:
    ```python
    auth_url = "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id"
    ```
 
-2. Use the `--auth-url` flag when running the script
+2. Use the `--auth-url` flag when running the script:
+   ```bash
+   python3 provision_certs.py \
+     -a <arpio-account-id> \
+     -t token \
+     -u <username> \
+     -p <password> \
+     --auth-url "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id" \
+     -o dns_entries.json
+   ```
 
-```bash
-# Interactive mode (will prompt for credentials)
-python3 provision_certs.py
-
-# With parameters
-python3 provision_certs.py \
-  -a <arpio-account-id> \
-  -u <username> \
-  -p <password> \
-  -o dns_entries.json
-
-# With SSO authentication URL
-python3 provision_certs.py \
-  -a <arpio-account-id> \
-  -u <username> \
-  -p <password> \
-  --auth-url "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id" \
-  -o dns_entries.json
-
-# Dry run (test without making changes)
-python3 provision_certs.py --dry-run
-```
+API key authentication does not require the auth URL.
 
 ### Step 2: Create DNS Validation Entries (`create_validation_dns_entries.py`)
 
@@ -219,11 +259,15 @@ python3 create_validation_dns_entries.py -f dns_entries.json --dry-run
 
 **`provision_certs.py`:**
 - `-a, --arpio-account`: Arpio account ID
-- `-u, --username`: Arpio username
-- `-p, --password`: Arpio password
+- `-t, --auth-type`: Authentication type: `api` or `token` (default: `token`)
+- `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
+- `-u, --username`: Arpio username (for token auth)
+- `-p, --password`: Arpio password (for token auth)
 - `-o, --outfile`: Output file for DNS entries (default: print to console)
 - `-d, --dry-run`: Test mode, don't create certificates
-- `--auth-url`: SSO identity provider authentication URL (format: `https://api.arpio.io/api/auth/authenticate?identityProviderId=<your-id>`)
+- `--auth-url`: SSO identity provider authentication URL for token auth (format: `https://api.arpio.io/api/auth/authenticate?identityProviderId=<your-id>`)
+
+Environment variables: `ARPIO_API_KEY`, `ARPIO_USERNAME`, `ARPIO_PASSWORD`, and `ARPIO_API` (override API root URL).
 
 **`create_validation_dns_entries.py`:**
 - `-f, --entry-file`: Input JSON file from provision_certs.py

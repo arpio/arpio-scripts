@@ -30,6 +30,10 @@ from urllib.request import Request, build_opener, HTTPCookieProcessor, install_o
 from urllib.error import HTTPError
 from http import cookiejar
 
+# Import the shared Arpio authentication helpers from the sibling utils/ directory.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+import arpio_auth
+
 # Defaults
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
@@ -75,82 +79,8 @@ def http_post(url, data=None, headers=None):
         return e.read(), e.code, e.headers
 
 
-def get_cookie_value(name):
-    return next((cookie.value for cookie in cookie_jar if cookie.name == name), None)
-
-
 def build_arpio_url(*path_bits):
     return '/'.join([ARPIO_API_ROOT] + list(path_bits))
-
-
-# --------------- Authentication ---------------
-
-def authenticate_with_token(username, password):
-    """Authenticate using username/password and return session-cookie auth header."""
-    list_account_url = build_arpio_url('accounts')
-    body, status, _ = http_get(list_account_url)
-    if status != 401:
-        raise Exception(f'Expected 401 on unauthenticated GET, got {status}')
-
-    auth_url = json.loads(body.decode()).get('authenticateUrl')
-    if not auth_url:
-        raise Exception('No authenticateUrl in 401 response')
-
-    auth_url = urljoin(list_account_url, auth_url)
-    auth_body, _, _ = http_get(auth_url)
-    auth_response = json.loads(auth_body)
-
-    web_login_url = auth_response.get('loginUrl')
-    if not web_login_url:
-        raise Exception('No loginUrl in auth flow response')
-
-    query_params = parse_qs(urlsplit(web_login_url).query)
-    auth_token = query_params.get('authToken', [None])[0]
-    if not auth_token:
-        raise Exception(f'No authToken in URL: {web_login_url}')
-
-    login_url = f'{urlsplit(auth_url).scheme}://{urlsplit(auth_url).netloc}/api/users/login'
-    body, code, _ = http_post(login_url, {'email': username, 'password': password})
-    if code != 200:
-        raise Exception(f'Login failed: {body.decode()}')
-
-    native_auth_token = json.loads(body).get('nativeAuthToken')
-    if not native_auth_token:
-        raise Exception('Missing nativeAuthToken')
-
-    native_acs_url = f'{urlsplit(auth_url).scheme}://{urlsplit(auth_url).netloc}/api/auth/nativeAcs'
-    body, code, _ = http_post(native_acs_url, {
-        'authToken': auth_token,
-        'nativeAuthToken': native_auth_token
-    })
-    if code != 200:
-        raise Exception(f'Native ACS login failed: {body.decode()}')
-
-    token = get_cookie_value(ARPIO_TOKEN_COOKIE)
-    if not token:
-        raise Exception('Failed to retrieve Arpio session token')
-
-    return {ARPIO_TOKEN_COOKIE: token}
-
-
-def get_auth_header(args):
-    """Return the appropriate auth header dict based on CLI args."""
-    if args.auth_type == 'api':
-        api_key = args.api_key or os.environ.get('ARPIO_API_KEY')
-        if not api_key:
-            api_key = getpass.getpass('Arpio API key (<keyId>:<secret>): ')
-        if not api_key:
-            print('Error: API key is required for --auth-type api')
-            sys.exit(1)
-        return {'X-Api-Key': api_key}
-    else:
-        username = args.username or os.environ.get('ARPIO_USERNAME')
-        if not username:
-            username = input('Arpio username (email): ')
-        password = args.password or os.environ.get('ARPIO_PASSWORD')
-        if not password:
-            password = getpass.getpass('Arpio password: ')
-        return authenticate_with_token(username, password)
 
 
 # --------------- Core logic ---------------
@@ -251,16 +181,7 @@ def format_rules(rules):
 def main():
     parser = argparse.ArgumentParser(
         description='Update tag selection rules for all applications in an Arpio account.')
-    parser.add_argument('-a', '--arpio-account', required=True,
-                        help='Arpio Account ID')
-    parser.add_argument('-t', '--auth-type', required=True, choices=['api', 'token'],
-                        help='Authentication method: "api" for API key, "token" for username/password')
-    parser.add_argument('-k', '--api-key',
-                        help='Arpio API key in the form "<apiKeyID>:<secret>"')
-    parser.add_argument('-u', '--username',
-                        help='Arpio username (email)')
-    parser.add_argument('-p', '--password',
-                        help='Arpio password')
+    arpio_auth.add_arpio_auth_args(parser)
     parser.add_argument('--tag-key',
                         help='Tag key to set')
     parser.add_argument('--tag-value',
@@ -299,7 +220,7 @@ def main():
 
     # Authenticate
     try:
-        auth_header = get_auth_header(args)
+        auth_header = arpio_auth.resolve_auth_header(args)
     except Exception as e:
         print(f"Authentication failed: {e}")
         sys.exit(1)
