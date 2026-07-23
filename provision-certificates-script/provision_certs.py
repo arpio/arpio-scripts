@@ -1,319 +1,501 @@
-# Copyright 2024 Arpio, Inc.
+# Arpio Automation Scripts
 
-# This script queries Arpio for missing certificate issues, and then automates the provisioning
-# of the correct certificate.
+A collection of Python scripts for automating common tasks with [Arpio](https://arpio.io), an AWS disaster recovery service.
 
-# First-time Setup Instructions
-# 1. Make sure you have python 3 installed.  Get it here: https://www.python.org/downloads/
-# 2. Copy this script and accompanying artifacts to a folder of your choosing.
-# 3. Open a Windows Command Prompt or Linux/Mac Terminal and cd to the folder you chose in #2.
-# 4. Run this command on Windows: py -m venv venv
-#    or this command on Linux/Mac: python3 -m venv venv
-# 5. Go run the Every-time Setup Instructions below
+These scripts are intended for public usage by existing Arpio.io customers. Refer to the Setup Instructions and Usage guidelines at the top of each script file. Please contact support@arpio.io with any questions.
 
-# Every-time Setup Instructions
-# 1. Run this command on Windows: .\venv\Scripts\activate
-#    or this command on Linux/Mac: . ./venv/bin/activate
-# 2. Run this command: pip install -r requirements.txt
+## Table of Contents
 
-# Usage
-# Invoke the script optionally passing args for the Arpio account ID and credentials:
-#   Windows: py provision_certs.py
-#   Linux/Mac: python3 provision_certs.py
-# To test the script, specify the --dry-run flag
-#
-# Authentication
-# This script supports two ways of authenticating to the Arpio API (matching the other
-# scripts in this repo):
-#   - API Key:   pass via -k/--api-key or set the ARPIO_API_KEY environment variable, and
-#                use -t/--auth-type api
-#   - Token:     pass via -u/--username and -p/--password (or set ARPIO_USERNAME /
-#                ARPIO_PASSWORD), and use -t/--auth-type token (the default)
-#
-# Examples:
-#   python3 provision_certs.py -a <account-id> -t api -k <apiKeyID>:<secret>
-#   python3 provision_certs.py -a <account-id> -t token -u user@example.com -p password
-#   ARPIO_API_KEY="keyId:secret" python3 provision_certs.py -a <account-id> -t api
-#
-# If your Arpio account is configured to use SSO, you will need to set the auth_url variable in this script below
-# to the identity provider url or use the --auth-url flag (token authentication only).
+- [Prerequisites](#prerequisites)
+- [Scripts Overview](#scripts-overview)
+- [Query Audit Events](#query-audit-events)
+- [Create API Key](#create-api-key)
+- [Certificate Provisioning](#certificate-provisioning)
+- [CloudFormation Template Update](#cloudformation-template-update)
+- [Application Onboarding](#application-onboarding)
 
-# Ex. - https://api.arpio.io/api/auth/authenticate?identityProviderId=example
-auth_url = None
+---
 
-from datetime import datetime
-import json
-import os
-import random
-import string
-import time
-import requests
-import click
-import re
-from boto3.session import Session
-from botocore.exceptions import ClientError
-from urllib.parse import urlsplit, parse_qs, urljoin
+## Prerequisites
 
+- Python 3.9 or higher
+- AWS credentials configured (for scripts that interact with AWS)
+- Arpio account with appropriate permissions
 
-ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
-DEFAULT_ARPIO_ACCOUNT = 'arpio-account-id'
-DEFAULT_ARPIO_USER = 'arpio-user-email'
-NO_FILE = 'none'
+---
 
-ARPIO_TOKEN_COOKIE = 'ArpioSession'
+## Scripts Overview
 
-def build_arpio_url(*path_bits):
-    """Built an Arpio API URL from a set of path bits"""
-    url_bits = [ARPIO_API_ROOT]
-    url_bits.extend(path_bits)
-    return '/'.join(url_bits)
+| Script | Purpose | Requires venv |
+|--------|---------|---------------|
+| `query-audit-events.py` | Retrieve Arpio audit events | Yes |
+| `create-api-key.py` | Create Arpio API keys | Yes |
+| `provision_certs.py` | Automate ACM certificate provisioning | Yes |
+| `create_validation_dns_entries.py` | Create DNS validation entries for certificates | Yes |
+| `cfn-template-update.py` | Update CloudFormation access templates | No* |
+| `onboard.py` | Bulk onboard applications from CSV | No* |
 
-def get_arpio_token(account_id, username, password, auth_url):
-    """
-    Given a username and password, get an access token for calling the Arpio API.
-    This mirrors the UI flow in some pretty gnarly web requests.  Probably best to
-    never touch this function -- let the Arpio team deal with it.
-    """
-    """Check if URL matches the Arpio auth authenticate pattern."""
+\* Can run in AWS CloudShell without modification
 
-    pattern = r'^https://api\.arpio\.io/api/auth/authenticate\?identityProviderId=[a-zA-Z0-9]+$'
-    if auth_url and not re.match(pattern, auth_url):
-        raise Exception('Provided Auth URL is invalid')
+---
 
-    # Attempt to list the applications in an account 
-    list_apps_url = build_arpio_url(f'accounts/{account_id}/applications')
-    resp = requests.get(list_apps_url)
-    if resp.status_code != 401:
-        raise Exception('Expected 401 on unauthenticated GET operation')
-    
-    if auth_url is None:
-        auth_url = resp.json().get('authenticateUrl')
-        if not auth_url:
-            raise Exception("Didn't get an authentication URL in 401 reponse")
-        
-    if not auth_url:
-        raise Exception("Authentication URL not provided")
+## Query Audit Events
 
-    auth_url = urljoin(list_apps_url, auth_url)
-    auth_url_parts = urlsplit(auth_url)
+Retrieves Arpio audit events for a specified account within a given time frame.
 
-    # Start the auth flow
-    resp = requests.get(auth_url)
-    if resp.status_code != 200:
-        raise Exception(f'{resp.status_code} starting authentication flow')
+### Setup
 
-    # Get the auth token from the login URL
-    web_login_url = resp.json().get('loginUrl')
-    if not web_login_url:
-        raise Exception(f'No loginUrl in auth flow repsonse')
+Run these commands from the folder that the GitHub repo was downloaded into:
 
-    web_login_url_parts = urlsplit(web_login_url)
-    web_login_url_args = parse_qs(web_login_url_parts.query)
-    auth_token = web_login_url_args.get('authToken')
-    if not auth_token:
-        raise Exception(f'No authToken in auth URL: {web_login_url}')
-    auth_token = auth_token[0]
+```bash
+cd ./arpio-scripts
 
-    # Login at the native IDP
-    login_url = f'{auth_url_parts.scheme}://{auth_url_parts.netloc}/api/users/login'
-    resp = requests.post(login_url, json={'email':username, 'password': password})
-    if resp.status_code != 200:
-        raise Exception(f'Failed to login: {resp.content}')
-    
-    native_auth_token = resp.json().get('nativeAuthToken')
-    if not native_auth_token:
-        raise Exception(f'No nativeAuthToken in native IDP response: {resp.content}')
-    
-    # Finish the flow
-    native_acs_url = f'{auth_url_parts.scheme}://{auth_url_parts.netloc}/api/auth/nativeAcs'
-    resp = requests.post(native_acs_url, json={'authToken': auth_token, 'nativeAuthToken': native_auth_token})
-    if resp.status_code != 200:
-        raise Exception(f'Login at native IDP failed: {resp.content}')
+# Create virtual environment
+python3 -m venv venv
 
-    token = resp.cookies[ARPIO_TOKEN_COOKIE]
-    return token
+# Activate virtual environment
+# On Linux/Mac:
+source venv/bin/activate
+# On Windows:
+venv\Scripts\activate
 
-def authenticate(auth_type, account_id, username, password, api_key, auth_url):
-    """
-    Resolve credentials and return an auth descriptor usable with auth_request_kwargs().
+# Install dependencies
+pip install click python-dateutil urllib3
+```
 
-    For 'api' auth, the API key is taken from the --api-key arg, then the ARPIO_API_KEY
-    environment variable, then an interactive prompt.
+### Usage
 
-    For 'token' auth, the username/password are taken from args, then the ARPIO_USERNAME /
-    ARPIO_PASSWORD environment variables, then interactive prompts, and are exchanged for an
-    Arpio session token via the standard auth flow.
-    """
-    if auth_type == 'api':
-        api_key = api_key or os.environ.get('ARPIO_API_KEY')
-        if not api_key:
-            api_key = click.prompt('Arpio API key (<apiKeyID>:<secret>)', hide_input=True)
-        if not api_key:
-            raise Exception('An API key is required for --auth-type api')
-        return {'type': 'api', 'api_key': api_key}
-    else:
-        username = username or os.environ.get('ARPIO_USERNAME')
-        if not username:
-            username = click.prompt('Arpio username')
-        password = password or os.environ.get('ARPIO_PASSWORD')
-        if not password:
-            password = click.prompt('Arpio password', hide_input=True)
-        token = get_arpio_token(account_id, username, password, auth_url)
-        return {'type': 'token', 'token': token}
+Set your API key as an environment variable:
 
-def auth_request_kwargs(auth):
-    """Return the requests keyword args that apply the given auth descriptor."""
-    if auth['type'] == 'api':
-        return {'headers': {'X-Api-Key': auth['api_key']}}
-    return {'cookies': {ARPIO_TOKEN_COOKIE: auth['token']}}
+```bash
+export ARPIO_API_KEY="your-api-key-id:your-api-key-secret"
+```
 
-def get_account_id(sts_client):
-    resp = sts_client.get_caller_identity()
-    return resp['Account']
+Basic usage:
 
-def list_applications(accountId, auth):
-    applications_url = build_arpio_url('accounts', accountId, 'applications')
-    resp = requests.get(applications_url, **auth_request_kwargs(auth))
-    if resp.status_code != 200:
-        raise Exception(f'Failed to list applications: {resp.content}')
-    return resp.json()
+```bash
+# Query all events for an account
+./query-audit-events.py <account-id>
 
-def list_missing_cert_issues(accountId, applicationId, auth):
-    issues_url = build_arpio_url('accounts', accountId, 'applications', applicationId, 'issues')
-    resp = requests.get(issues_url, **auth_request_kwargs(auth))
-    if resp.status_code != 200:
-        raise Exception(f'Failed to list issues: {resp.content}')
-    return [i['issue'] for i in resp.json() if i['issue']['type'] == 'acmCertificateNotFound']
+# Query events within a time range
+./query-audit-events.py <account-id> "2025-07-23" "2025-07-24"
 
-def provision_cert(acm_client, _primary_account, _primary_region, recovery_account, recovery_region, 
-                   subject_name, subject_alternative_names, _primary_cert_arn, dry_run):
-    """
-    Use the ACM API to request a DNS-validated certificate with the appropriate subject name and
-    subject alternative names.  
-    """
+# Query with specific timestamps (UTC)
+./query-audit-events.py <account-id> "2025-07-23T19:55:10.001002Z" "2025-07-24T00:00:00Z"
 
-    print(f'Provisioning cert for {subject_name} with {len(subject_alternative_names)} SAN(s) in region {recovery_region}')
+# Use trace flag to see URLs being fetched
+./query-audit-events.py <account-id> --trace
+```
 
-    # Look for an existing certificate before creating a new one.
-    cert_arn = None
-    paginator = acm_client.get_paginator('list_certificates')
-    for page in paginator.paginate():
-        for cert in page['CertificateSummaryList']:
-            if cert['DomainName'] == subject_name and set(cert['SubjectAlternativeNameSummaries']) == set(subject_alternative_names):
-                if cert['Status'] == 'ISSUED' and cert['NotAfter'] < datetime.now:
-                    print(f'Cert {subject_name} appears to already be issued.')
-                    return []
-                elif cert['Status'] == 'PENDING_VALIDATION':
-                    cert_arn = cert['CertificateArn']
-                    break
-        if cert_arn:
-            break
+### Options
 
-    if dry_run:
-        if not cert_arn:
-            print(f'Skipping provisioning cert because this is a dry-run.')
-        else:
-            print(f'Certificate is already provisioned.')
-    else:
-        if not cert_arn:
-            idempotency_token = ''.join(random.choices(string.ascii_uppercase + string.digits, k=32))
-            cert_arn = acm_client.request_certificate(
-                DomainName=subject_name,
-                ValidationMethod='DNS',
-                SubjectAlternativeNames=subject_alternative_names,
-                IdempotencyToken=idempotency_token,
-            )['CertificateArn']
-        
-        for i in range(30):
-            try:
-                cert_details = acm_client.describe_certificate(CertificateArn=cert_arn)
-                # DomainValidationOptions shows up latently
-                if all('ResourceRecord' in dvo for dvo in cert_details['Certificate'].get('DomainValidationOptions', [{}])):
-                    break
-                time.sleep(5)
-            except ClientError as ce:
-                if ce.response['Error']['Code'] == 'ResourceNotFoundException':
-                    time.sleep(5)
-                else:
-                    raise
-        
-        if not cert_details:
-            raise Exception(f'Certificate {cert_arn} was successfully requested, but never appeared.')
+- `--api-hostname`: Override default API hostname (default: `api.arpio.io`)
+- `--trace`: Print audit event query URLs to stderr
 
-        return [(dvo['ResourceRecord']['Name'], dvo['ResourceRecord']['Value']) for dvo in cert_details['Certificate']['DomainValidationOptions'] 
-                if dvo.get('ValidationMethod') == 'DNS']
-    return []
+### Output
 
-    
+Events are printed to stdout in JSON Lines (JSONL) format, one event per line.
 
-# This script makes heavy use of click for command-line processing.
-# Details at https://palletsprojects.com/p/click/
-@click.command()
-@click.option('-a', '--arpio-account', prompt='Arpio account ID', default=DEFAULT_ARPIO_ACCOUNT, show_default=True)
-@click.option('-t', '--auth-type', type=click.Choice(['api', 'token']), default='token', show_default=True,
-              help='Authentication method: "api" for API key, "token" for username/password')
-@click.option('-u', '--username', default=None, help='Arpio username (for token auth)')
-@click.option('-p', '--password', default=None, help='Arpio password (for token auth)')
-@click.option('-k', '--api-key', default=None, help='Arpio API key in the form "<apiKeyID>:<secret>" (for API auth)')
-@click.option('-o', '--outfile', prompt='DNS entry output file', default=NO_FILE, show_default=True)
-@click.option('-d', '--dry-run', is_flag=True)
-@click.option('--auth-url', default=auth_url, show_default=True, prompt_required=False )
+---
 
-def provision(arpio_account, auth_type, username, password, api_key, dry_run, outfile, auth_url):
+## Create API Key
 
-    # Resolve credentials to call the Arpio API
-    auth = authenticate(auth_type, arpio_account, username, password, api_key, auth_url)
+Authenticates to an Arpio account and creates a non-interactive API key.
 
-    # Validate that we have access to the AWS API, and identify the AWS account
-    sts = Session().client('sts')
-    account_id = get_account_id(sts)
-    print(f'Current AWS account is {account_id}.  Certs required in other accounts will be skipped.\n')
-    
-    # Query for all defined applications
-    applications = list_applications(arpio_account, auth)
+### Setup
 
-    dns_entries = []
+Run these commands from the folder that the GitHub repo was downloaded into:
 
-    # Iterate across all applications finding missing cert issues and provision them
-    for app in applications:
-        primary_account = app['sourceAwsAccountId']
-        primary_region = app['sourceRegion']
-        recovery_account = app['targetAwsAccountId']
-        recovery_region = app['targetRegion']
+```bash
+cd ./arpio-scripts
 
-        # Skip applications that replicate to other AWS accounts
-        if recovery_account != account_id:
-            continue
+# Create virtual environment
+python3 -m venv venv
 
-        missing_cert_issues = list_missing_cert_issues(arpio_account, app['appId'], auth)
-        acm = Session(region_name=app['targetRegion']).client('acm')
-        for issue in missing_cert_issues:
-            primary_cert_arn = issue['sourceCertificateArn']
-            subject_name = issue['domainName']
-            subject_alternative_names = issue['subjectAlternativeNames']
+# Activate virtual environment
+# On Linux/Mac:
+source venv/bin/activate
+# On Windows:
+venv\Scripts\activate
 
-            dns_entries.extend(
-                provision_cert(acm, primary_account, primary_region, recovery_account, recovery_region, 
-                           subject_name, subject_alternative_names, primary_cert_arn, dry_run)
-            )
+# Install dependencies
+pip install click urllib3
+```
 
-    if outfile is NO_FILE:
-        print('\n========================== Required DNS Entries ==========================')
-        if dry_run:
-            print('None.  This is a dry run.')
-        elif not dns_entries:
-            print('None.')
-        else:
-            for n,v in dns_entries:
-                print(f'CNAME Entry: {n} = {v}')
-    else:
-        of = open(outfile, '+w')
-        data = [{'Name': n, 'Value': v} for n,v in dns_entries]
-        json.dump(data, of)
+### Usage
 
+```bash
+./create-api-key.py <account-id> <email>
+```
 
-if __name__ == '__main__':
-    provision()
+You'll be prompted for your password. The script will output the API key details, including the secret (which is only displayed once).
 
+### Options
 
+- `--password`: Provide password via command line (not recommended for security)
+- `--api-hostname`: Override default API hostname (default: `api.arpio.io`)
 
+### Example Output
+
+```bash
+./create-api-key.py RQDLgR8ar2ipEV0VbfQLno user@example.com
+
+Created API key (the secret is only ever displayed ONE TIME, right here):
+{
+  "apiKeyId": "abc123...",
+  "secret": "xyz789...",
+  ...
+}
+
+Example command using curl to list configured API keys:
+curl -H 'X-Api-Key: abc123...:xyz789...' 'https://api.arpio.io/api/accounts/RQDLgR8ar2ipEV0VbfQLno/apiKeys'
+```
+
+---
+
+## Certificate Provisioning
+
+Two scripts work together to automate ACM certificate provisioning for missing certificates in Arpio applications.
+
+### Setup
+
+Run these commands from the folder that the GitHub repo was downloaded into:
+
+```bash
+cd ./arpio-scripts
+
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+# On Linux/Mac:
+source venv/bin/activate
+# On Windows:
+venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Step 1: Provision Certificates (`provision_certs.py`)
+
+Queries Arpio for missing certificate issues and requests DNS-validated certificates via ACM.
+
+#### Authentication
+
+Like the other scripts in this repo, `provision_certs.py` supports two ways to authenticate to the Arpio API:
+
+- **API key** (`-t api`): pass the key via `-k/--api-key` or the `ARPIO_API_KEY` environment variable.
+- **Token** (`-t token`, the default): pass `-u/--username` and `-p/--password`, or set `ARPIO_USERNAME` / `ARPIO_PASSWORD`. Any missing credentials are prompted for interactively.
+
+```bash
+# API key authentication
+python3 provision_certs.py \
+  -a <arpio-account-id> \
+  -t api \
+  -k <api-key-id>:<api-key-secret> \
+  -o dns_entries.json
+
+# API key via environment variable
+export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
+
+# Call the script with API key authentication
+python3 provision_certs.py \
+  -a <arpio-account-id> \
+  -t api \
+  -o dns_entries.json
+
+# Token (username/password) authentication
+python3 provision_certs.py \
+  -a <arpio-account-id> \
+  -t token \
+  -u <username> \
+  -p <password> \
+  -o dns_entries.json
+
+# Interactive mode (will prompt for any missing credentials)
+python3 provision_certs.py
+
+# Dry run (test without making changes)
+python3 provision_certs.py --dry-run
+```
+
+#### SSO Configuration
+
+If your Arpio account uses SSO, token authentication can target your identity provider in one of two ways:
+
+1. Set the `auth_url` variable at the top of the script:
+   ```python
+   auth_url = "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id"
+   ```
+
+2. Use the `--auth-url` flag when running the script:
+   ```bash
+   python3 provision_certs.py \
+     -a <arpio-account-id> \
+     -t token \
+     -u <username> \
+     -p <password> \
+     --auth-url "https://api.arpio.io/api/auth/authenticate?identityProviderId=your-idp-id" \
+     -o dns_entries.json
+   ```
+
+API key authentication does not require the auth URL.
+
+### Step 2: Create DNS Validation Entries (`create_validation_dns_entries.py`)
+
+Creates the required DNS CNAME entries in Route53 for certificate validation.
+
+```bash
+# Using the output file from step 1
+python3 create_validation_dns_entries.py -f dns_entries.json
+
+# Dry run
+python3 create_validation_dns_entries.py -f dns_entries.json --dry-run
+```
+
+### Options
+
+**`provision_certs.py`:**
+- `-a, --arpio-account`: Arpio account ID
+- `-t, --auth-type`: Authentication type: `api` or `token` (default: `token`)
+- `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
+- `-u, --username`: Arpio username (for token auth)
+- `-p, --password`: Arpio password (for token auth)
+- `-o, --outfile`: Output file for DNS entries (default: print to console)
+- `-d, --dry-run`: Test mode, don't create certificates
+- `--auth-url`: SSO identity provider authentication URL for token auth (format: `https://api.arpio.io/api/auth/authenticate?identityProviderId=<your-id>`)
+
+Environment variables: `ARPIO_API_KEY`, `ARPIO_USERNAME`, `ARPIO_PASSWORD`, and `ARPIO_API` (override API root URL).
+
+**`create_validation_dns_entries.py`:**
+- `-f, --entry-file`: Input JSON file from provision_certs.py
+- `-d, --dry-run`: Test mode, don't create DNS entries
+
+> Note: `create_validation_dns_entries.py` only talks to AWS (STS and Route53) and does not call the Arpio API, so it requires no Arpio authentication.
+
+---
+
+## CloudFormation Template Update
+
+Updates CloudFormation access templates across all Arpio sync pairs. Can run in AWS CloudShell without setup.
+
+### Setup (Optional)
+
+If not using CloudShell:
+
+```bash
+# Ensure boto3 is installed
+pip install boto3>=1.26.30
+```
+
+### Usage
+
+Run these commands from the folder that the GitHub repo was downloaded into (or from AWS CloudShell, where the repo has been cloned):
+
+```bash
+# Using API key authentication
+python3 cfn-template-update.py \
+  -a <arpio-account-id> \
+  --auth-type api \
+  -k <api-key-id>:<api-key-secret>
+
+# Using username/password authentication
+python3 cfn-template-update.py \
+  -a <arpio-account-id> \
+  -t token \
+  -u <username> \
+  -p <password>
+
+# Using environment variables
+export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
+python3 cfn-template-update.py \
+  -a <arpio-account-id> \
+  -t api
+```
+
+### Options
+
+- `-a, --arpio-account`: Arpio account ID (required)
+- `-t, --auth-type`: Authentication type: `api` or `token` (required)
+- `-u, --username`: Arpio username (for token auth)
+- `-p, --password`: Arpio password (for token auth)
+- `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
+- `-w, --max-workers`: Max parallel workers (default: 20)
+- `--proxy`: Enable proxy support
+- `-n, --debug-network`: Enable HTTP/S network debugging
+- `-s, --stack-name`: CloudFormation stack name to create if it doesn't exist (default: `arpio-access`)
+- `--aws-auth`: AWS authentication method: `role` (default) or `sso`
+- `-r, --role-name`: IAM role to assume in each account for role-based auth (default: `OrganizationAccountAccessRole`)
+- `--sso-config`: Path to JSON file mapping AWS account IDs to IAM role names (required for SSO)
+- `--idp-id`: Google Identity Provider ID (required for SSO)
+- `--sp-id`: Google Service Provider ID (required for SSO)
+
+### Environment Variables
+
+- `ARPIO_API_KEY`: API key for authentication
+- `ARPIO_USERNAME`: Username for token authentication
+- `ARPIO_PASSWORD`: Password for token authentication
+
+### Using Google SSO for AWS Authentication
+
+If you access AWS accounts via Google SSO with different IAM roles per account, use the `--aws-auth sso` option.
+
+#### Prerequisites
+
+```bash
+npm install --global gsts @playwright/test
+npx playwright install
+```
+
+#### SSO Config File
+
+Create a JSON file mapping AWS account IDs to their IAM role names:
+
+```json
+{
+  "123456789012": "my-admin-role",
+  "987654321098": "other-admin-role"
+}
+```
+
+#### Usage
+
+```bash
+python3 cfn-template-update.py \
+  -a <arpio-account-id> \
+  -t api \
+  -k <api-key> \
+  --aws-auth sso \
+  --sso-config sso-roles.json \
+  --idp-id <your-google-idp-id> \
+  --sp-id <your-google-sp-id>
+```
+
+You can find your Google IDP ID and SP ID in your Google Workspace SAML application configuration for AWS.
+
+The script will open a browser for Google authentication once per AWS account.
+
+---
+
+## Application Onboarding
+
+Bulk creates Arpio applications and installs CloudFormation access templates from a CSV file.
+
+### Setup (Optional)
+
+If not using CloudShell:
+
+```bash
+# Ensure boto3 is installed
+pip install boto3>=1.26.30
+```
+
+### CSV Format
+
+Create a CSV file with the following columns:
+
+| Column | Description | Example | Required |
+|--------|-------------|---------|----------|
+| `primary_environment` | Primary AWS account/region | `123456789012/us-east-1` | Yes |
+| `primary_iam_role` | IAM role in primary account | `MyProdRole` | No |
+| `recovery_environment` | Recovery AWS account/region | `987654321098/us-west-2` | Yes |
+| `recovery_iam_role` | IAM role in recovery account | `MyRecRole` | No |
+| `application_name` | Name for the Arpio application | `TestApp` | Yes |
+| `recovery_point_objective (in minutes)` | RPO in minutes | `60` | No (default: 60) |
+| `notification_email` | Email for notifications | `notify@example.com` | No |
+| `tag_rules` | Space-separated tag key=value pairs | `key=value another=tag` | No (default: `arpio-protected=true`) |
+
+### Example CSV
+
+```csv
+primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,application_name,recovery_point_objective (in minutes),notification_email,tag_rules
+123456789012/us-east-1,MyProdRole,987654321098/us-west-2,MyRecRole,TestApp,60,notify@example.com,key=value something=else and-a-third=true
+123456789012/us-east-1,,987654321098/us-west-2,,AnotherApp,30,alerts@example.com,environment=production tier=critical
+```
+
+### Usage
+
+Run these commands from the folder that the GitHub repo was downloaded into (or from AWS CloudShell, where the repo has been cloned):
+
+```bash
+# Using API key authentication
+python3 onboard.py \
+  --csv applications.csv \
+  -a <arpio-account-id> \
+  -t api \
+  -k <api-key-id>:<api-key-secret>
+
+# Using username/password authentication
+python3 onboard.py \
+  --csv applications.csv \
+  -a <arpio-account-id> \
+  -t token \
+  -u <username> \
+  -p <password>
+
+# Using environment variables
+export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
+python3 onboard.py \
+  --csv applications.csv \
+  -a <arpio-account-id> \
+  -t api
+```
+
+### Options
+
+- `-c, --csv`: Path to input CSV file (required)
+- `-a, --arpio-account`: Arpio account ID (required)
+- `-t, --auth-type`: Authentication type: `api` or `token` (required)
+- `-u, --username`: Arpio username (for token auth)
+- `-p, --password`: Arpio password (for token auth)
+- `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (for API auth)
+- `--proxy`: Enable proxy support
+- `-n, --debug-network`: Enable HTTP/S network debugging (insecure, logs tokens)
+
+### Environment Variables
+
+- `ARPIO_API_KEY`: API key for authentication
+- `ARPIO_USERNAME`: Username for token authentication
+- `ARPIO_PASSWORD`: Password for token authentication
+- `ARPIO_API`: Override API root URL (default: `https://api.arpio.io/api`)
+
+### Process
+
+The script runs in two phases:
+
+1. **Application Creation**: Creates all applications in parallel
+2. **Template Installation**: Installs CloudFormation access templates sequentially
+
+---
+
+## Security Notes
+
+- Never commit credentials to version control
+- Use environment variables or secure credential stores for sensitive data
+- API key secrets are only displayed once during creation - save them securely
+- The `--debug-network` flag logs sensitive information and should only be used for troubleshooting
+
+---
+
+## License
+
+Copyright 2024-2025 Arpio, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+
+## Support
+
+For issues or questions about these scripts, contact Arpio support or refer to the [Arpio documentation](https://docs.arpio.io).
