@@ -71,7 +71,7 @@ python export_iam_role_policies.py arn:aws:iam::123456789012:role/ArpioPrimaryDe
 python export_iam_role_policies.py ArpioRecoveryAccess --profile my-profile
 
 # Custom output filename
-python export_iam_role_policies.py ArpioRecoveryAccess --output custom-name.json
+python export_iam_role_policies.py ArpioRecoveryAccess -o custom-name.json
 ```
 
 **Output:**

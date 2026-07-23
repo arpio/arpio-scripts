@@ -186,7 +186,7 @@ def main():
                         help='Tag key to set')
     parser.add_argument('--tag-value',
                         help='Tag value to set')
-    parser.add_argument('--dry-run', action='store_true',
+    parser.add_argument('-d', '--dry-run', action='store_true',
                         help='List applications and show what would change without making updates')
     parser.add_argument('-f', '--force', action='store_true',
                         help='Skip confirmation prompt when overwriting existing tag rules')
