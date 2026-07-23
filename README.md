@@ -45,7 +45,11 @@ Retrieves Arpio audit events for a specified account within a given time frame.
 
 ### Setup
 
+Run these commands from the folder that the GitHub repo was downloaded into:
+
 ```bash
+cd ./arpio-scripts
+
 # Create virtual environment
 python3 -m venv venv
 
@@ -100,7 +104,11 @@ Authenticates to an Arpio account and creates a non-interactive API key.
 
 ### Setup
 
+Run these commands from the folder that the GitHub repo was downloaded into:
+
 ```bash
+cd ./arpio-scripts
+
 # Create virtual environment
 python3 -m venv venv
 
@@ -151,7 +159,11 @@ Two scripts work together to automate ACM certificate provisioning for missing c
 
 ### Setup
 
+Run these commands from the folder that the GitHub repo was downloaded into:
+
 ```bash
+cd ./arpio-scripts
+
 # Create virtual environment
 python3 -m venv venv
 
@@ -186,7 +198,12 @@ python3 provision_certs.py \
 
 # API key via environment variable
 export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
-python3 provision_certs.py -a <arpio-account-id> -t api -o dns_entries.json
+
+# Call the script with API key authentication
+python3 provision_certs.py \
+  -a <arpio-account-id> \
+  -t api \
+  -o dns_entries.json
 
 # Token (username/password) authentication
 python3 provision_certs.py \
@@ -274,6 +291,8 @@ pip install boto3>=1.26.30
 
 ### Usage
 
+Run these commands from the folder that the GitHub repo was downloaded into (or from AWS CloudShell, where the repo has been cloned):
+
 ```bash
 # Using API key authentication
 python3 cfn-template-update.py \
@@ -290,7 +309,9 @@ python3 cfn-template-update.py \
 
 # Using environment variables
 export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
-python3 cfn-template-update.py -a <arpio-account-id> -t api
+python3 cfn-template-update.py \
+  -a <arpio-account-id> \
+  -t api
 ```
 
 ### Options
@@ -303,8 +324,9 @@ python3 cfn-template-update.py -a <arpio-account-id> -t api
 - `-w, --max-workers`: Max parallel workers (default: 20)
 - `--proxy`: Enable proxy support
 - `-n, --debug-network`: Enable HTTP/S network debugging
+- `-s, --stack-name`: CloudFormation stack name to create if it doesn't exist (default: `arpio-access`)
 - `--aws-auth`: AWS authentication method: `role` (default) or `sso`
-- `-r, --role-name`: IAM role to assume in each account (default: `OrganizationAccountAccessRole`) (required for role-based auth)
+- `-r, --role-name`: IAM role to assume in each account for role-based auth (default: `OrganizationAccountAccessRole`)
 - `--sso-config`: Path to JSON file mapping AWS account IDs to IAM role names (required for SSO)
 - `--idp-id`: Google Identity Provider ID (required for SSO)
 - `--sp-id`: Google Service Provider ID (required for SSO)
@@ -394,6 +416,8 @@ primary_environment,primary_iam_role,recovery_environment,recovery_iam_role,appl
 
 ### Usage
 
+Run these commands from the folder that the GitHub repo was downloaded into (or from AWS CloudShell, where the repo has been cloned):
+
 ```bash
 # Using API key authentication
 python3 onboard.py \
@@ -406,18 +430,21 @@ python3 onboard.py \
 python3 onboard.py \
   --csv applications.csv \
   -a <arpio-account-id> \
-  --auth-type token \
+  -t token \
   -u <username> \
   -p <password>
 
 # Using environment variables
 export ARPIO_API_KEY="<api-key-id>:<api-key-secret>"
-python3 onboard.py --csv applications.csv -a <arpio-account-id> --auth-type api
+python3 onboard.py \
+  --csv applications.csv \
+  -a <arpio-account-id> \
+  -t api
 ```
 
 ### Options
 
-- `--csv`: Path to input CSV file (required)
+- `-c, --csv`: Path to input CSV file (required)
 - `-a, --arpio-account`: Arpio account ID (required)
 - `-t, --auth-type`: Authentication type: `api` or `token` (required)
 - `-u, --username`: Arpio username (for token auth)
