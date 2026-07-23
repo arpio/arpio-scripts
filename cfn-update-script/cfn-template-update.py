@@ -21,6 +21,7 @@
 import argparse
 import json
 import os
+import sys
 import subprocess
 import threading
 import time
@@ -34,6 +35,10 @@ from urllib.parse import urlencode, urlsplit, parse_qs, urljoin
 from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor, ProxyHandler, HTTPHandler, HTTPSHandler, install_opener
 from http import cookiejar
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Import the shared Arpio authentication helpers from the sibling utils/ directory.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+import arpio_auth
 
 ARPIO_API_ROOT = os.environ.get('ARPIO_API') or 'https://api.arpio.io/api'
 ARPIO_TOKEN_COOKIE = 'ArpioSession'
@@ -142,72 +147,11 @@ def http_post(url, data=None, headers=None):
         return response.read(), response.getcode(), response.headers
 
 
-def get_cookie_value(name):
-    return next((cookie.value for cookie in cookie_jar if cookie.name == name), None)
-
-
-def check_email(email):
-    regex = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,7}\b'
-    # pass the regular expression
-    # and the string into the fullmatch() method
-    if re.fullmatch(regex, email):
-        return False
-    else:
-        print("Invalid email address format.")
-        return True
-
-
 # ---------- Arpio API Functions ----------
 
 
 def build_arpio_url(*path_bits):
     return '/'.join([ARPIO_API_ROOT] + list(path_bits))
-
-
-def get_arpio_token(account_id, username, password):
-    list_account_url = build_arpio_url(f'accounts')
-    body, status, resp_headers = http_get(list_account_url)
-    if status != 401:
-        raise Exception(' Expected 401 on unauthenticated GET operation')
-    
-    auth_url = json.loads(str(body, 'utf-8')).get('authenticateUrl')
-    if not auth_url:
-        raise Exception(' No authentication URL in 401 response')
-
-    auth_url = urljoin(list_account_url, auth_url)
-    auth_body, _, _ = http_get(auth_url)
-    auth_response = json.loads(auth_body)
-
-    web_login_url = auth_response.get('loginUrl')
-    if not web_login_url:
-        raise Exception('No loginUrl in auth flow response')
-
-    query_params = parse_qs(urlsplit(web_login_url).query)
-    auth_token = query_params.get('authToken', [None])[0]
-    if not auth_token:
-        raise Exception(f'No authToken in URL: {web_login_url}')
-
-    login_url = f'{urlsplit(auth_url).scheme}://{urlsplit(auth_url).netloc}/api/users/login'
-    body, code, _ = http_post(login_url, {'email': username, 'password': password})
-    if code != 200:
-        raise Exception(f'Login failed: {body.decode()}')
-
-    native_auth_token = json.loads(body).get('nativeAuthToken')
-    if not native_auth_token:
-        raise Exception('Missing nativeAuthToken')
-
-    native_acs_url = f'{urlsplit(auth_url).scheme}://{urlsplit(auth_url).netloc}/api/auth/nativeAcs'
-    body, code, _ = http_post(native_acs_url, {
-        'authToken': auth_token,
-        'nativeAuthToken': native_auth_token
-    })
-    if code != 200:
-        raise Exception(f'Native ACS login failed: {body.decode()}')
-
-    token = get_cookie_value(ARPIO_TOKEN_COOKIE)
-    if not token:
-        raise Exception('Failed to retrieve Arpio session token')
-    return token
 
 
 def query_environments(arpio_auth_header, arpio_account:str)->List[SyncPair]:
@@ -418,16 +362,7 @@ def update_template(upd:TemplateUpdate, session:Session, role:str, aws_auth:str=
 
 def main():
     parser = argparse.ArgumentParser(description='Update Arpio access templates across AWS sync pairs.')
-    parser.add_argument('-a', '--arpio-account', help='Arpio Account ID', required=True)
-    parser.add_argument('-t', '--auth-type', help='Form of authentication between User/Pass \"Token\" and \"API\" Key.  \
-                        API keys may be stored as an environment variable under \"ARPIO_API_KEY\", or provided as an optional argument. \
-                        If using Token authentication, provide the username and password arguments to the script. \
-                        Both username and password can be stored as environmental \
-                        variables under \"ARPIO_USERNAME\" and \"ARPIO_PASSWORD\"',
-                        required=True, choices=['api','token'], default='token')
-    parser.add_argument('-u', '--username', help='Arpio Username')
-    parser.add_argument('-p', '--password', help='Arpio Password')
-    parser.add_argument('-k', '--api-key', help='Arpio API key in the form \"<apiKeyID>:<secret>\"')
+    arpio_auth.add_arpio_auth_args(parser)
     parser.add_argument('-r', '--role-name', default=DEFAULT_IAM_ROLE,
                         help=f'Role name to assume in each AWS account (default: {DEFAULT_IAM_ROLE})')
     parser.add_argument('-s', '--stack-name', default=DEFAULT_STACK_NAME,
@@ -450,30 +385,13 @@ def main():
 
 
     print('🛠 Arpio CloudFormation Access Template Updater\n')
-    arpio_account = args.arpio_account or input('Arpio Account ID: ').strip()
+    arpio_account = args.arpio_account
 
-    if args.auth_type == 'api':
-        if args.auth_type == 'api' and args.api_key is None and os.environ.get('ARPIO_API_KEY') is None:
-            print('--auth_type api requires --api_key to be set, manually enter API key.')
-        api_key = args.api_key or os.environ.get('ARPIO_API_KEY') or getpass('Arpio API key: ')
-        if api_key is None:
-            parser.error('API key not found')
-            exit(1)
-        arpio_auth_header = {'X-Api-Key' : api_key}
-    elif args.auth_type == 'token':
-        try:
-            username = args.username or os.getenv("ARPIO_USERNAME") or input(f'Arpio username (email address): ')
-            if check_email(username):
-                exit(1)
-            password = (args.password or os.getenv("ARPIO_PASSWORD")) or getpass('Arpio password: ')
-            token = get_arpio_token(arpio_account, username, password)
-            arpio_auth_header = {ARPIO_TOKEN_COOKIE : token}
-
-        except Exception as e:
-            print(f"{e}")
-            exit(1)
-    else:
-        print(f'Missing arguments for authentication type. Please check your arguments and try again.')
+    try:
+        arpio_auth_header = arpio_auth.resolve_auth_header(
+            args, proxy=args.proxy, debug_network=args.debug_network)
+    except Exception as e:
+        print(f"{e}")
         exit(1)
 
     check_version()

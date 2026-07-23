@@ -60,7 +60,7 @@ source venv/bin/activate
 venv\Scripts\activate
 
 # Install dependencies
-pip install click python-dateutil urllib3
+pip install -r requirements.txt
 ```
 
 ### Usage
@@ -75,22 +75,33 @@ Basic usage:
 
 ```bash
 # Query all events for an account
-./query-audit-events.py <account-id>
+./query-audit-events.py -a <account-id>
 
 # Query events within a time range
-./query-audit-events.py <account-id> "2025-07-23" "2025-07-24"
+./query-audit-events.py -a <account-id> "2025-07-23" "2025-07-24"
 
 # Query with specific timestamps (UTC)
-./query-audit-events.py <account-id> "2025-07-23T19:55:10.001002Z" "2025-07-24T00:00:00Z"
+./query-audit-events.py -a <account-id> "2025-07-23T19:55:10.001002Z" "2025-07-24T00:00:00Z"
 
 # Use trace flag to see URLs being fetched
-./query-audit-events.py <account-id> --trace
+./query-audit-events.py -a <account-id> --trace
 ```
 
 ### Options
 
-- `--api-hostname`: Override default API hostname (default: `api.arpio.io`)
+This script uses the standard Arpio authentication arguments shared across the
+repo. It defaults to API-key authentication (`-t api`), reading the key from
+`-k/--api-key` or the `ARPIO_API_KEY` environment variable; pass `-t token` to
+authenticate with a username/password instead.
+
+- `-a, --arpio-account`: Arpio account ID (required)
+- `-t, --auth-type`: Authentication type: `api` or `token` (default: `api`)
+- `-k, --api-key`: Arpio API key in format `<keyId>:<secret>` (or set `ARPIO_API_KEY`)
+- `-u, --username` / `-p, --password`: credentials for token auth (or set `ARPIO_USERNAME` / `ARPIO_PASSWORD`)
 - `--trace`: Print audit event query URLs to stderr
+
+To target a non-default API host, set the `ARPIO_API` environment variable
+(e.g. `export ARPIO_API="https://api.example.com/api"`).
 
 ### Output
 
@@ -119,26 +130,36 @@ source venv/bin/activate
 venv\Scripts\activate
 
 # Install dependencies
-pip install click urllib3
+pip install -r requirements.txt
 ```
 
 ### Usage
 
 ```bash
-./create-api-key.py <account-id> <email>
+./create-api-key.py -a <account-id> -u <email>
 ```
 
 You'll be prompted for your password. The script will output the API key details, including the secret (which is only displayed once).
 
 ### Options
 
-- `--password`: Provide password via command line (not recommended for security)
-- `--api-hostname`: Override default API hostname (default: `api.arpio.io`)
+This script uses the standard Arpio authentication arguments shared across the
+repo. It defaults to token (username/password) authentication; pass `-t api`
+with an existing key to create another one.
+
+- `-a, --arpio-account`: Arpio account ID (required)
+- `-t, --auth-type`: Authentication type: `api` or `token` (default: `token`)
+- `-u, --username`: Arpio username/email (or set `ARPIO_USERNAME`)
+- `-p, --password`: Arpio password (or set `ARPIO_PASSWORD`); prompted if not provided
+- `-k, --api-key`: Arpio API key for `-t api` (or set `ARPIO_API_KEY`)
+
+To target a non-default API host, set the `ARPIO_API` environment variable
+(e.g. `export ARPIO_API="https://api.example.com/api"`).
 
 ### Example Output
 
 ```bash
-./create-api-key.py RQDLgR8ar2ipEV0VbfQLno user@example.com
+./create-api-key.py -a RQDLgR8ar2ipEV0VbfQLno -u user@example.com
 
 Created API key (the secret is only ever displayed ONE TIME, right here):
 {

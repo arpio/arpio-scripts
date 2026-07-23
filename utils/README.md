@@ -12,6 +12,48 @@ pip install -r requirements.txt
 
 ## Scripts
 
+### arpio_auth.py
+
+Shared helper module (standard library only) that gives every Arpio CLI in this
+repo a single, consistent set of authentication arguments and one credential
+resolution flow. It is imported by `onboard.py`, `cfn-template-update.py`,
+`update_tag_rules.py`, `provision_certs.py`, `create-api-key.py`, and
+`query-audit-events.py`.
+
+**Standard arguments** (added via `add_arpio_auth_args(parser)`):
+
+- `-a, --arpio-account`: Arpio account ID
+- `-t, --auth-type`: `api` or `token` (default: `token`)
+- `-k, --api-key`: API key `<apiKeyID>:<secret>` (env: `ARPIO_API_KEY`)
+- `-u, --username`: Arpio username/email (env: `ARPIO_USERNAME`)
+- `-p, --password`: Arpio password (env: `ARPIO_PASSWORD`)
+
+Credentials are resolved in the order: command-line argument, then environment
+variable, then interactive prompt. The Arpio API root defaults to
+`https://api.arpio.io/api` and can be overridden with the `ARPIO_API`
+environment variable.
+
+**Typical use in a script:**
+
+```python
+import argparse
+import arpio_auth
+
+parser = argparse.ArgumentParser()
+arpio_auth.add_arpio_auth_args(parser)
+args = parser.parse_args()
+
+auth = arpio_auth.resolve_auth(args)        # {'type': 'api'|'token', ...}
+headers = arpio_auth.auth_headers(auth)     # for urllib / urllib3
+# or, for the `requests` library:
+kwargs = arpio_auth.auth_request_kwargs(auth)
+```
+
+This module is not run directly; it is imported by the other scripts from this
+`utils/` directory.
+
+---
+
 ### export_iam_role_policies.py
 
 Export all IAM role policies (both attached managed policies and inline policies) to a JSON file.
@@ -29,7 +71,7 @@ python export_iam_role_policies.py arn:aws:iam::123456789012:role/ArpioPrimaryDe
 python export_iam_role_policies.py ArpioRecoveryAccess --profile my-profile
 
 # Custom output filename
-python export_iam_role_policies.py ArpioRecoveryAccess --output custom-name.json
+python export_iam_role_policies.py ArpioRecoveryAccess -o custom-name.json
 ```
 
 **Output:**

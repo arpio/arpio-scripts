@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Export IAM role policies to JSON file.
-Usage: python export_iam_role_policies.py <role-arn> [--profile <profile>] [--output <filename>]
+Usage: python export_iam_role_policies.py <role-arn> [--profile <profile>] [-o/--outfile <filename>]
 """
 
 import boto3
@@ -87,7 +87,7 @@ def main():
     parser = argparse.ArgumentParser(description='Export IAM role policies to JSON')
     parser.add_argument('role_input', help='IAM role name or ARN')
     parser.add_argument('--profile', help='AWS profile name', default=None)
-    parser.add_argument('--output', help='Output filename (default: <role-name>.json)', default=None)
+    parser.add_argument('-o', '--outfile', help='Output filename (default: <role-name>.json)', default=None)
     
     args = parser.parse_args()
     
@@ -103,8 +103,8 @@ def main():
     policies = get_role_policies(iam_client, role_name)
     
     # Determine output filename
-    if args.output:
-        output_file = args.output
+    if args.outfile:
+        output_file = args.outfile
     else:
         # Extract a cleaner name from the role name
         # e.g., ArpioPrimaryAccess-iLGmukP1fRsL19GRTcOzAc-us-east-1 -> ArpioPrimaryAccess
