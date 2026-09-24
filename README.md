@@ -9,6 +9,7 @@ These scripts are intended for public usage by existing Arpio.io customers. Refe
 - [Prerequisites](#prerequisites)
 - [Scripts Overview](#scripts-overview)
 - [Query Audit Events](#query-audit-events)
+- [List Application Details](#list-application-details)
 - [Create API Key](#create-api-key)
 - [Certificate Provisioning](#certificate-provisioning)
 - [CloudFormation Template Update](#cloudformation-template-update)
@@ -29,6 +30,7 @@ These scripts are intended for public usage by existing Arpio.io customers. Refe
 | Script | Purpose | Requires venv |
 |--------|---------|---------------|
 | `query-audit-events.py` | Retrieve Arpio audit events | Yes |
+| `list-app-details.py` | List Arpio applications, their details, and resources | Yes |
 | `create-api-key.py` | Create Arpio API keys | Yes |
 | `provision_certs.py` | Automate ACM certificate provisioning | Yes |
 | `create_validation_dns_entries.py` | Create DNS validation entries for certificates | Yes |
@@ -95,6 +97,84 @@ Basic usage:
 ### Output
 
 Events are printed to stdout in JSON Lines (JSONL) format, one event per line.
+
+---
+
+## List Application Details
+
+Lists the Arpio applications in an account, or retrieves the details (including selection rules) and selected resources for one or all applications.
+
+### Setup
+
+Run these commands from the folder that the GitHub repo was downloaded into:
+
+```bash
+cd ./arpio-scripts
+
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+# On Linux/Mac:
+source venv/bin/activate
+# On Windows:
+venv\Scripts\activate
+
+# Install dependencies
+pip install -r list-app-details/requirements.txt
+```
+
+### Usage
+
+Set your API key as an environment variable:
+
+```bash
+export ARPIO_API_KEY="your-api-key-id:your-api-key-secret"
+```
+
+Basic usage:
+
+```bash
+# List the applications in an account
+./list-app-details/list-app-details.py <account-id>
+
+# Get the details and resources for a single application
+./list-app-details/list-app-details.py <account-id> <application-id>
+
+# Get the details and resources for every application in an account
+./list-app-details/list-app-details.py <account-id> --all
+
+# Use trace flag to see URLs being fetched
+./list-app-details/list-app-details.py <account-id> --all --trace
+```
+
+### Options
+
+- `--all`: Get details and resources for every application in the account (cannot be combined with `<application-id>`)
+- `--api-hostname`: Override default API hostname (default: `api.arpio.io`)
+- `--trace`: Print API query URLs to stderr
+
+### Output
+
+Results are printed to stdout in JSON Lines (JSONL) format:
+
+- With only `<account-id>`: one application object per line
+- With `<application-id>` or `--all`: one line per application, in the form `{"application": {...}, "resources": [...]}`
+
+Parsing the output with jq:
+
+```bash
+# List the name and appId of every application
+./list-app-details/list-app-details.py <account-id> | jq -r '[.name, .appId] | @tsv'
+
+# Show each application's selection rules
+./list-app-details/list-app-details.py <account-id> --all \
+  | jq '{name: .application.name, selectionRules: .application.selectionRules}'
+
+# List the selected resources (source arn/type and target arn) for an application
+./list-app-details/list-app-details.py <account-id> <application-id> \
+  | jq '.resources[] | {arn, type, sourceId: .source.id, targetArn: .target.arn}'
+```
 
 ---
 
